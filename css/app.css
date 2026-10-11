@@ -1,0 +1,187 @@
+/* 崎駒線：運転台風の意匠。暗い地に高コントラスト、装飾的な動きはなし。 */
+
+:root,
+:root[data-theme="night"] {
+  --bg: #000;
+  --panel: #111;
+  --line: #3a3a3a;
+  --fg: #f2f2f2;
+  --muted: #9a9a9a;
+  --amber: #ffb000;
+  --green: #3dff6e;
+  --red: #ff4b3a;
+  --cyan: #4fd8ff;
+  --btn: #222;
+  --btn-fg: #fff;
+}
+:root[data-theme="day"] {
+  --bg: #fff;
+  --panel: #f1f1f1;
+  --line: #888;
+  --fg: #000;
+  --muted: #444;
+  --amber: #8a4b00;
+  --green: #006b1f;
+  --red: #c00000;
+  --cyan: #00558a;
+  --btn: #e4e4e4;
+  --btn-fg: #000;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body {
+  font-family: system-ui, "Noto Sans JP", "Hiragino Sans", sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  min-height: 100vh;
+  padding-bottom: 64px;
+  -webkit-tap-highlight-color: transparent;
+}
+.num, .seg, input, .kv td, code {
+  font-family: ui-monospace, "Roboto Mono", "Noto Sans Mono", "DejaVu Sans Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+#top {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; border-bottom: 2px solid var(--line);
+}
+.logo { font-weight: 900; letter-spacing: .2em; color: var(--amber); }
+.badge { border: 2px solid var(--cyan); color: var(--cyan); padding: 0 6px; font-size: 13px; font-weight: 700; }
+
+#nav {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  background: var(--panel); border-top: 2px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+#nav button {
+  background: none; border: 0; color: var(--muted);
+  padding: 12px 0; font-size: 14px; font-weight: 700;
+}
+#nav button.on { color: var(--amber); box-shadow: inset 0 3px 0 var(--amber); }
+
+body.running #nav, body.running #top { display: none; }
+body.running { padding-bottom: 0; }
+
+main { padding: 0 16px; max-width: 760px; margin: 0 auto; }
+
+/* ---------- 共通部品 ---------- */
+h1, h2, h3 { margin: 18px 0 8px; }
+h2 { font-size: 19px; border-left: 6px solid var(--amber); padding-left: 8px; }
+h3 { font-size: 16px; color: var(--amber); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.big { font-size: 22px; font-weight: 800; }
+.warn { color: var(--red); font-weight: 700; border: 2px solid var(--red); padding: 8px; }
+.ok { color: var(--green); font-weight: 700; }
+.warn-dot { color: var(--red); font-weight: 900; }
+.row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.row.wrap { flex-wrap: wrap; }
+.row.gap { gap: 10px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.btn, button.mini {
+  background: var(--btn); color: var(--btn-fg);
+  border: 2px solid var(--line); border-radius: 4px;
+  padding: 10px 14px; font-size: 16px; font-weight: 700;
+}
+.btn:active, button.mini:active { border-color: var(--amber); }
+.btn:disabled { opacity: .4; }
+.btn-small { padding: 6px 10px; font-size: 14px; }
+.btn-danger { border-color: var(--red); color: var(--red); }
+button.mini { padding: 4px 8px; font-size: 13px; }
+button.mini:disabled { opacity: .25; }
+
+input, select, textarea {
+  width: 100%; background: var(--panel); color: var(--fg);
+  border: 2px solid var(--line); border-radius: 4px; padding: 8px; font-size: 16px;
+}
+input[type="checkbox"], input[type="radio"] { width: auto; }
+textarea { font-family: inherit; }
+label { display: block; font-size: 14px; color: var(--muted); }
+label > input, label > select, label > textarea { margin-top: 2px; color: var(--fg); }
+label.row, label.inline { display: flex; align-items: center; gap: 6px; color: var(--fg); }
+fieldset { border: 2px solid var(--line); border-radius: 4px; margin: 4px 0; }
+legend { color: var(--amber); font-weight: 700; }
+.form { display: grid; gap: 10px; }
+.form h3 { margin-top: 0; }
+
+.tblwrap { overflow-x: auto; margin: 6px 0; }
+.tbl { border-collapse: collapse; width: 100%; font-size: 14px; }
+.tbl th, .tbl td { border-bottom: 1px solid var(--line); padding: 6px 5px; text-align: left; vertical-align: middle; }
+.tbl th { color: var(--muted); font-weight: 700; white-space: nowrap; }
+.tbl td.num { text-align: right; white-space: nowrap; }
+.tbl td.ord { white-space: nowrap; }
+.tbl tr.est td { color: var(--muted); }
+.tbl.clickable tbody tr { cursor: pointer; }
+.tbl input.dur { width: 6.5em; padding: 4px 6px; }
+.kv { border-collapse: collapse; margin: 8px 0; }
+.kv th { text-align: left; color: var(--muted); font-weight: 700; padding: 3px 14px 3px 0; }
+.kv td { padding: 3px 0; }
+
+dialog {
+  background: var(--bg); color: var(--fg);
+  border: 2px solid var(--amber); border-radius: 6px;
+  width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, .7); }
+
+.chart { width: 100%; height: auto; background: var(--panel); border: 1px solid var(--line); margin-top: 8px; }
+.chart .grid { stroke: var(--line); stroke-width: .6; }
+.chart .ax { fill: var(--muted); font-size: 11px; }
+.chart .line { fill: none; stroke: var(--amber); stroke-width: 1.6; }
+.chart .run { fill: none; stroke: var(--green); stroke-width: 1.6; }
+.chart .dia { fill: none; stroke: var(--amber); stroke-width: 2; stroke-dasharray: 6 4; }
+
+/* ---------- 運転台（待機） ---------- */
+.idle { display: grid; gap: 12px; padding: 8px 0 24px; }
+.plate {
+  font-size: 22px; font-weight: 900; letter-spacing: .15em; text-align: center;
+  border: 3px solid var(--amber); color: var(--amber); padding: 8px; margin: 12px 0 4px;
+}
+.dirsel { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dirbtn {
+  background: var(--btn); color: var(--fg); border: 3px solid var(--line); border-radius: 6px;
+  padding: 16px 6px; font-size: 26px; font-weight: 900;
+}
+.dirbtn small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-top: 4px; }
+.dirbtn.on { border-color: var(--amber); color: var(--amber); }
+.btn-start {
+  background: var(--amber); color: #000; border: 0; border-radius: 6px;
+  font-size: 28px; font-weight: 900; padding: 20px; letter-spacing: .2em;
+}
+.btn-start:disabled { opacity: .35; }
+
+/* ---------- 運転台（運転中） ---------- */
+.cab {
+  display: flex; flex-direction: column; gap: 6px;
+  min-height: 100vh; padding: 8px 0 12px;
+}
+.cab .lbl { font-size: 14px; color: var(--muted); font-weight: 700; letter-spacing: .1em; }
+.cab-status {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 15px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px;
+}
+.gps[data-state="good"] { color: var(--green); }
+.gps[data-state="fair"] { color: var(--amber); }
+.gps[data-state="bad"] { color: var(--bg); background: var(--red); padding: 0 6px; }
+.cab-block { border-bottom: 2px solid var(--line); padding: 4px 0 6px; }
+.cab-next {
+  font-size: clamp(30px, 11vw, 64px); font-weight: 900; line-height: 1.1; color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.cab-sub { font-size: 16px; color: var(--muted); font-weight: 700; }
+.seg { font-weight: 800; line-height: 1.05; letter-spacing: .02em; }
+.seg-xl { font-size: clamp(48px, 19vw, 120px); color: var(--amber); }
+.seg-l { font-size: clamp(40px, 15vw, 96px); min-height: 1.05em; }
+.seg-m { font-size: clamp(22px, 8vw, 44px); color: var(--fg); }
+#cDiff[data-state="late"] { color: var(--red); }
+#cDiff[data-state="early"] { color: var(--green); }
+#cDiff[data-state="ontime"] { color: var(--fg); }
+#cReq[data-state="over"] { color: var(--red); font-size: clamp(18px, 5.5vw, 30px); }
+.cab-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+.cab-prev { font-size: 18px; font-weight: 700; }
+.cab-stop { font-size: 22px; font-weight: 900; color: var(--cyan); min-height: 1.3em; }
+.cab-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; }

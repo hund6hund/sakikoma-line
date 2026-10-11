@@ -1,0 +1,6 @@
+# 個人情報を含むもの（公開しない）
+sakiba-line_requirements.txt
+*requirements*.txt
+# アプリから書き出したデータ（自宅の座標を含みうる）
+sakikoma-*.csv
+sakikoma-*.json

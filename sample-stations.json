@@ -1,0 +1,107 @@
+{
+  "app": "sakikoma-line",
+  "kind": "stations",
+  "version": 1,
+  "note": "サンプル。座標とキロ程はすべて仮の値です。",
+  "stations": [
+    {
+      "id": "S01",
+      "name": "自宅",
+      "type": "yard",
+      "ixNo": "",
+      "lat": 35.6205,
+      "lon": 139.724,
+      "segKm": 0,
+      "kmSource": "gsi",
+      "note": "起点（仮座標）"
+    },
+    {
+      "id": "S02",
+      "name": "大崎警察署前",
+      "type": "signal",
+      "ixNo": "",
+      "lat": 35.6215,
+      "lon": 139.7212,
+      "segKm": 0.29,
+      "kmSource": "gsi",
+      "note": "左折して山手通りへ（仮座標）"
+    },
+    {
+      "id": "S03",
+      "name": "（仮）信号A",
+      "type": "signal",
+      "ixNo": "",
+      "lat": 35.629,
+      "lon": 139.713,
+      "segKm": 1.171,
+      "kmSource": "binran",
+      "note": "仮座標"
+    },
+    {
+      "id": "S04",
+      "name": "（仮）信号B",
+      "type": "signal",
+      "ixNo": "",
+      "lat": 35.637,
+      "lon": 139.705,
+      "segKm": 1.204,
+      "kmSource": "binran",
+      "note": "仮座標"
+    },
+    {
+      "id": "S05",
+      "name": "（仮）信号C",
+      "type": "signal",
+      "ixNo": "",
+      "lat": 35.645,
+      "lon": 139.697,
+      "segKm": 1.204,
+      "kmSource": "binran",
+      "note": "仮座標"
+    },
+    {
+      "id": "S06",
+      "name": "大橋一丁目",
+      "type": "signal",
+      "ixNo": "5339351775",
+      "lat": 35.652,
+      "lon": 139.689,
+      "segKm": 1.115,
+      "kmSource": "binran",
+      "note": "仮座標"
+    },
+    {
+      "id": "S07",
+      "name": "大橋二丁目",
+      "type": "signal",
+      "ixNo": "5339354076",
+      "lat": 35.6555,
+      "lon": 139.686,
+      "segKm": 0.498,
+      "kmSource": "binran",
+      "note": "区道へ進入（仮座標）"
+    },
+    {
+      "id": "S08",
+      "name": "梅林門",
+      "type": "marker",
+      "ixNo": "",
+      "lat": 35.6585,
+      "lon": 139.6855,
+      "segKm": 0.353,
+      "kmSource": "gsi",
+      "note": "仮座標"
+    },
+    {
+      "id": "S09",
+      "name": "9号館",
+      "type": "yard",
+      "ixNo": "",
+      "lat": 35.66,
+      "lon": 139.6835,
+      "segKm": 0.258,
+      "kmSource": "gsi",
+      "note": "終点（仮座標）"
+    }
+  ]
+}
