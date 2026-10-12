@@ -4,3 +4,7 @@ sakiba-line_requirements.txt
 # アプリから書き出したデータ（自宅の座標を含みうる）
 sakikoma-*.csv
 sakikoma-*.json
+# 台帳の下書き（自宅の座標を含む）
+*.xlsx
+*.xls
+~$*

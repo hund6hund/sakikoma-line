@@ -178,7 +178,8 @@ export const DEFAULT_SETTINGS = {
   stopKmh: 3, // 停車とみなす速度 km/h
   departFixes: 2, // 発車と確定する連続測位数
   flagSec: 15, // 停車フラグの閾値 秒
-  arrivalSec: 30, // 到着とみなす停車秒数
+  arrivalSec: 20, // 到着とみなす停車秒数（試走により30→20）
+  chimeVol: 60, // 通過・到着の鈴の音量 0〜100（0で鳴らさない）
   reqCapKmh: 40, // 必要時速の上限 km/h
   maskRadius: 300, // 起点を伏せるとき軌跡を除く半径 m
   theme: 'night', // night | day

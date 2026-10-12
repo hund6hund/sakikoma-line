@@ -145,3 +145,20 @@ export function trackDistance(track, tA, tB, stopKmh = 3) {
   for (let i = 1; i < pts.length; i++) if (pts[i].speed * 3.6 >= stopKmh) d += dist(pts[i - 1], pts[i]);
   return { meters: d, points: pts.length };
 }
+
+/**
+ * 時刻 t0〜t1 の最高時速（km/h）。精度不良の点は除き、
+ * GPSの速度の一瞬の跳ねを拾わないよう前後3点の中央値で均してから最大をとる。
+ */
+export function maxSpeed(track, t0, t1) {
+  if (t0 == null || t1 == null) return null;
+  const pts = track.filter((p) => !p.poor && isFinite(p.speed)).sort((a, b) => a.t - b.t);
+  let best = null;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].t < t0 || pts[i].t > t1) continue;
+    const w = [pts[i - 1], pts[i], pts[i + 1]].filter(Boolean).map((p) => p.speed).sort((a, b) => a - b);
+    const v = w[(w.length - 1) >> 1] * 3.6;
+    if (best == null || v > best) best = v;
+  }
+  return best;
+}

@@ -9,6 +9,8 @@ import { RunEngine } from './engine.js';
 import { GeoLocator, SimLocator, SIM, clock, getOnce } from './locator.js';
 import * as ana from './analysis.js';
 import * as ex from './exporter.js';
+import { unlock as unlockSound, chime } from './sound.js';
+import { gaugeSvg, setGauge } from './gauge.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -113,7 +115,10 @@ function renderCab() {
     $('#diaSel').innerHTML = opts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
   };
   $$('.dirbtn').forEach((b) => b.addEventListener('click', () => { app.selDir = b.dataset.dir; paint(); }));
-  $('#btnStart').addEventListener('click', () => startRun(app.selDir, $('#diaSel').value));
+  $('#btnStart').addEventListener('click', () => {
+    unlockSound();
+    startRun(app.selDir, $('#diaSel').value);
+  });
   paint();
   if (!ok || SIM) {
     $('#suggest').textContent = SIM ? '模擬走行モード（?sim）' : '';
@@ -142,6 +147,7 @@ function renderResume() {
       <button id="btnStop" class="btn">ここまでで運転終了</button>
     </section>`;
   $('#btnCont').addEventListener('click', async () => {
+    unlockSound();
     const track = await loadTrack(r.id);
     app.resumeRun = null;
     beginRunning(r, track);
@@ -189,7 +195,13 @@ function makeEngine(run, cur) {
     stations: app.stations,
     settings: app.settings,
     on: {
-      passage: (pa) => db.put('passages', { ...pa }),
+      passage: (pa) => {
+        db.put('passages', { ...pa });
+        // 確定した通過ごとに一度だけ鳴らす（推定と、到着時の終点は除く）
+        if (cur.replaying || pa.estimated || cur.chimed.has(pa.id)) return;
+        cur.chimed.add(pa.id);
+        if (!(pa.stationId === cur.engine.terminal?.id && pa.exitT == null)) chime('pass', app.settings.chimeVol);
+      },
       stop: (s) => db.put('stops', { ...s }),
       arrive: () => { if (!cur.replaying) setTimeout(() => endRun('arrive'), 0); },
       warning: (msg) => {
@@ -203,7 +215,7 @@ function makeEngine(run, cur) {
 }
 
 async function beginRunning(run, track) {
-  const cur = { run, dia: app.dias.find((d) => d.id === run.diaId) ?? null, ended: false, replaying: true, err: null };
+  const cur = { run, dia: app.dias.find((d) => d.id === run.diaId) ?? null, ended: false, replaying: true, err: null, chimed: new Set() };
   cur.engine = makeEngine(run, cur);
   for (const p of track) cur.engine.feed(p);
   cur.replaying = false;
@@ -242,6 +254,7 @@ async function endRun(reason) {
   run.flagCount = cur.engine.passages.filter((p) => p.stopFlag).length;
   run.warnings = [...new Set([...run.warnings, ...cur.engine.warnings])];
   await db.put('runs', run);
+  if (reason === 'arrive') chime('arrive', app.settings.chimeVol);
   app.cur = null;
   document.body.classList.remove('running');
   renderArrival(run, cur.engine);
@@ -276,15 +289,18 @@ function renderCabRunning() {
       <div class="cab-block">
         <div id="cMainLbl" class="lbl"></div>
         <div id="cMain" class="seg seg-xl"></div>
+        <div class="cab-now"><span class="lbl">現在時刻</span> <span id="cNow" class="seg"></span></div>
       </div>
       <div class="cab-block">
         <div class="lbl">定時差</div>
         <div id="cDiff" class="seg seg-l"></div>
       </div>
-      <div class="cab-grid">
-        <div><div class="lbl">時速</div><div id="cSpeed" class="seg seg-m"></div></div>
-        <div><div class="lbl">残り</div><div id="cRemain" class="seg seg-m"></div></div>
-        <div><div class="lbl">必要時速</div><div id="cReq" class="seg seg-m"></div></div>
+      <div class="cab-meter">
+        <div id="cGauge">${gaugeSvg(app.settings.reqCapKmh)}</div>
+        <div class="cab-side">
+          <div><div class="lbl">残り</div><div id="cRemain" class="seg seg-m"></div></div>
+          <div><div class="lbl">必要時速</div><div id="cReq" class="seg seg-m"></div></div>
+        </div>
       </div>
       <div class="cab-prev"><span class="lbl">前駅</span> <span id="cPrev"></span></div>
       <div id="cStop" class="cab-stop"></div>
@@ -339,6 +355,7 @@ function updateCab() {
     setText('#cMain', fmtDur(el));
     setText('#cElapsed', `発 ${fmtClock(run.startTime)}`);
   }
+  setText('#cNow', fmtClock(now));
 
   let diff = null;
   if (dia) {
@@ -349,22 +366,25 @@ function updateCab() {
   }
   setText('#cDiff', diff == null ? '' : fmtSigned(diff), diff == null ? '' : diff >= 1 ? 'late' : diff <= -1 ? 'early' : 'ontime');
 
-  setText('#cSpeed', st.speedKmh == null || st.fixAge > 10 ? '--' : String(Math.round(st.speedKmh)));
   setText('#cRemain', st.remain == null ? '--' : st.remain >= 1000 ? `${(st.remain / 1000).toFixed(2)}km` : `${Math.round(st.remain)}m`);
   let req = '—';
   let rcls = '';
+  let reqV = null;
   if (schedNext != null && st.remain != null) {
     const rs = schedNext - el;
     const v = rs > 0 ? (st.remain / rs) * 3.6 : Infinity;
     if (v > S.reqCapKmh) { req = '回復不能'; rcls = 'over'; }
-    else req = String(Math.round(v));
+    else { req = String(Math.round(v)); reqV = v; }
   }
   setText('#cReq', req, rcls);
+  setGauge($('#cGauge'), st.speedKmh == null || st.fixAge > 10 ? null : st.speedKmh, reqV);
 
   const lp = st.lastPassage;
   setText('#cPrev', lp ? `${lp.stationName}　${fmtClock(lp.passT)}${lp.stopFlag ? '　■停' : ''}` : '—');
   setText('#cStop', st.stopping != null ? `停車中 ${fmtDur(st.stopping)}` : '');
 }
+
+const fmtKmh = (v) => (v == null ? '—' : `${v.toFixed(1)} km/h`);
 
 function renderArrival(run, engine) {
   const dur = run.arrivalTime ? (run.arrivalTime - run.startTime) / 1000 : null;
@@ -378,6 +398,7 @@ function renderArrival(run, engine) {
         <tr><th>所要時間</th><td>${fmtDur(dur)}</td></tr>
         <tr><th>通過駅</th><td>${engine.passages.length}（推定 ${engine.passages.filter((p) => p.estimated).length}）</td></tr>
         <tr><th>停車フラグ</th><td>${run.flagCount}</td></tr>
+        <tr><th>最高時速</th><td>${fmtKmh(ana.maxSpeed(engine.pts, run.startTime, run.arrivalTime ?? run.endTime))}</td></tr>
       </table>
       ${run.warnings.length ? `<p class="warn">${run.warnings.map(esc).join('<br>')}</p>` : ''}
       <button id="btnDetail" class="btn">記録を見る</button>
@@ -420,6 +441,8 @@ async function renderRunDetail(id) {
   const ps = (await db.byIndex('passages', 'runId', id)).sort((a, b) => a.passT - b.passT);
   const ss = (await db.byIndex('stops', 'runId', id)).sort((a, b) => a.startT - b.startT);
   const secs = ana.sections(ps);
+  const track = await loadTrack(id);
+  const vmax = (t0, t1) => ana.maxSpeed(track, t0, t1);
   const nameOf = (sid) => ps.find((p) => p.stationId === sid)?.stationName ?? app.stations.find((s) => s.id === sid)?.name ?? sid;
   const secName = (sec) => sec ? sec.split('-').map(nameOf).join('→') : '';
   const el = (t) => fmtDur((t - run.startTime) / 1000);
@@ -432,6 +455,7 @@ async function renderRunDetail(id) {
         <tr><th>起点発車</th><td>${fmtDateTime(run.startTime, 0)}</td></tr>
         <tr><th>到着</th><td>${run.arrivalTime ? fmtDateTime(run.arrivalTime, 1) : '—'}${run.endReason === 'manual' ? '（手動終了）' : ''}</td></tr>
         <tr><th>所要時間</th><td>${run.arrivalTime ? fmtDur((run.arrivalTime - run.startTime) / 1000) : '—'}</td></tr>
+        <tr><th>最高時速</th><td>${fmtKmh(vmax(run.startTime, run.arrivalTime ?? run.endTime))}</td></tr>
         <tr><th>ダイヤ</th><td>${esc(app.dias.find((d) => d.id === run.diaId)?.name ?? 'なし')}</td></tr>
       </table>
       ${run.warnings?.length ? `<p class="warn">${run.warnings.map(esc).join('<br>')}</p>` : ''}
@@ -451,13 +475,14 @@ async function renderRunDetail(id) {
 
       <h3>区間</h3>
       <div class="tblwrap"><table class="tbl">
-        <thead><tr><th>区間</th><th>km</th><th>所要</th><th>平均時速</th></tr></thead>
+        <thead><tr><th>区間</th><th>km</th><th>所要</th><th>平均</th><th>最高</th></tr></thead>
         <tbody>${secs.map((s) => `
           <tr class="${s.estimated ? 'est' : ''}">
             <td>${esc(s.from.stationName)}→${esc(s.to.stationName)}</td>
             <td class="num">${s.km.toFixed(3)}</td>
             <td class="num">${fmtDur(s.sec)}</td>
             <td class="num">${s.kmh == null ? '—' : s.kmh.toFixed(1)}</td>
+            <td class="num">${vmax(s.from.passT, s.to.passT)?.toFixed(1) ?? '—'}</td>
           </tr>`).join('')}</tbody></table></div>
 
       <h3>停車</h3>
@@ -491,7 +516,6 @@ async function renderRunDetail(id) {
     const a = real.find((p) => p.id === $('#mA').value);
     const b = real.find((p) => p.id === $('#mB').value);
     if (!a || !b || a === b) return;
-    const track = await loadTrack(id);
     const r = ana.trackDistance(track, a.passT, b.passT, app.settings.stopKmh);
     const km = Math.round(r.meters) / 1000;
     const out = $('#mOut');
@@ -949,6 +973,8 @@ function renderData() {
         ${num('departFixes', '発車と確定する連続測位', '回')}
         ${num('mergeSec', '同じ駅への再進入をまとめる', '秒以内')}
         ${num('maskRadius', '起点を伏せるときに除く範囲', 'm')}
+        ${num('chimeVol', '通過・到着の鈴の音量', '0〜100。0で鳴らさない')}
+        <div class="row gap"><button type="button" id="tryPass" class="btn btn-small">通過の音を試す</button><button type="button" id="tryArr" class="btn btn-small">到着の音を試す</button></div>
         <label>表示 <select name="theme">
           <option value="night" ${S.theme === 'night' ? 'selected' : ''}>黒地（標準）</option>
           <option value="day" ${S.theme === 'day' ? 'selected' : ''}>白地（直射日光下）</option>
@@ -997,11 +1023,17 @@ function renderData() {
     await loadAll();
     show('ledger');
   });
+  for (const [id, kind] of [['#tryPass', 'pass'], ['#tryArr', 'arrive']]) {
+    $(id).addEventListener('click', () => {
+      unlockSound();
+      chime(kind, Number($('#setForm').chimeVol.value) || 0);
+    });
+  }
   $('#setForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
     const patch = { theme: f.theme.value };
-    for (const k of ['radius', 'stopKmh', 'flagSec', 'arrivalSec', 'reqCapKmh', 'poorAcc', 'hyst', 'departFixes', 'mergeSec', 'maskRadius']) {
+    for (const k of ['radius', 'stopKmh', 'flagSec', 'arrivalSec', 'reqCapKmh', 'poorAcc', 'hyst', 'departFixes', 'mergeSec', 'maskRadius', 'chimeVol']) {
       const v = Number(f[k].value);
       if (!isFinite(v) || v < 0) return alert(`${k} の値が不正です`);
       patch[k] = v;

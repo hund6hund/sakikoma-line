@@ -1,5 +1,5 @@
 // オフラインで動かすためのキャッシュ。ファイルを変えたら VERSION を上げる。
-const VERSION = 'sakikoma-v1';
+const VERSION = 'sakikoma-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,8 @@ const ASSETS = [
   './js/locator.js',
   './js/analysis.js',
   './js/exporter.js',
+  './js/sound.js',
+  './js/gauge.js',
   './sample-stations.json',
   './icons/icon-192.png',
   './icons/icon-512.png',

@@ -181,7 +181,24 @@ dialog::backdrop { background: rgba(0, 0, 0, .7); }
 #cDiff[data-state="early"] { color: var(--green); }
 #cDiff[data-state="ontime"] { color: var(--fg); }
 #cReq[data-state="over"] { color: var(--red); font-size: clamp(18px, 5.5vw, 30px); }
-.cab-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+.cab-now { font-size: clamp(20px, 6.5vw, 34px); font-weight: 800; color: var(--fg); margin-top: 2px; }
+.cab-now .lbl { font-size: 14px; }
+.cab-meter {
+  display: grid; grid-template-columns: 1.15fr 1fr; gap: 8px; align-items: center;
+  border-bottom: 2px solid var(--line); padding-bottom: 6px;
+}
+.cab-side { display: grid; gap: 10px; }
+.gauge { width: 100%; height: auto; display: block; max-height: 34vh; }
+.gauge .g-rim { fill: none; stroke: var(--line); stroke-width: 6; }
+.gauge .g-red { fill: none; stroke: var(--red); stroke-width: 6; }
+.gauge .tk { stroke: var(--muted); stroke-width: 2; }
+.gauge .tk-major { stroke: var(--fg); stroke-width: 3.5; }
+.gauge .tk-num { fill: var(--fg); font-size: 15px; font-weight: 800; text-anchor: middle; font-family: ui-monospace, "Roboto Mono", monospace; }
+.gauge .g-needle { stroke: var(--amber); stroke-width: 5; stroke-linecap: round; }
+.gauge .g-hub { fill: var(--amber); }
+.gauge .g-req { fill: var(--green); }
+.gauge .g-num { fill: var(--fg); font-size: 36px; font-weight: 900; text-anchor: middle; font-family: ui-monospace, "Roboto Mono", monospace; }
+.gauge .g-unit { fill: var(--muted); font-size: 12px; font-weight: 700; text-anchor: middle; }
 .cab-prev { font-size: 18px; font-weight: 700; }
 .cab-stop { font-size: 22px; font-weight: 900; color: var(--cyan); min-height: 1.3em; }
 .cab-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; }
