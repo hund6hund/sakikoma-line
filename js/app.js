@@ -286,24 +286,22 @@ function renderCabRunning() {
         <div id="cNext" class="cab-next"></div>
         <div id="cNextSub" class="cab-sub"></div>
       </div>
-      <div class="cab-block">
-        <div id="cMainLbl" class="lbl"></div>
-        <div id="cMain" class="seg seg-xl"></div>
-        <div class="cab-now"><span class="lbl">現在時刻</span> <span id="cNow" class="seg"></span></div>
+      <div class="cab-block cab-times">
+        <div class="trow"><span class="lbl">経過</span><span id="cEl" class="seg t-el"></span></div>
+        <div class="trow"><span class="lbl">現在時刻</span><span id="cNow" class="seg"></span></div>
+        <div class="trow" id="rowSched" hidden><span class="lbl">次駅予定</span><span id="cSched" class="seg t-sched"></span></div>
       </div>
-      <div class="cab-block">
+      <div class="cab-block" id="blkDiff" hidden>
         <div class="lbl">定時差</div>
         <div id="cDiff" class="seg seg-l"></div>
       </div>
-      <div class="cab-meter">
-        <div id="cGauge">${gaugeSvg(app.settings.reqCapKmh)}</div>
-        <div class="cab-side">
-          <div><div class="lbl">残り</div><div id="cRemain" class="seg seg-m"></div></div>
-          <div><div class="lbl">必要時速</div><div id="cReq" class="seg seg-m"></div></div>
-        </div>
-      </div>
       <div class="cab-prev"><span class="lbl">前駅</span> <span id="cPrev"></span></div>
       <div id="cStop" class="cab-stop"></div>
+      <div class="cab-side">
+        <div><span class="lbl">残り</span> <span id="cRemain" class="seg seg-m"></span></div>
+        <div><span class="lbl">必要時速</span> <span id="cReq" class="seg seg-m"></span></div>
+      </div>
+      <div id="cGauge" class="cab-gauge">${gaugeSvg(app.settings.reqCapKmh)}</div>
       <div class="cab-foot">
         <span id="cElapsed" class="muted"></span>
         <button id="btnEnd" class="btn btn-small">運転終了</button>
@@ -342,20 +340,16 @@ function updateCab() {
   else { gps = `GPS ±${Math.round(st.acc)}m`; gcls = st.poor ? 'bad' : st.acc <= 15 ? 'good' : 'fair'; }
   setText('#cGps', gps, gcls);
 
-  setText('#cNext', st.next ? st.next.name : '（終点）');
+  setText('#cNext', st.next ? st.next.name : '（終点）', st.inside ? 'inside' : '');
   setText('#cNextSub', st.next ? `${st.inside ? '構内　' : ''}${st.next.km.toFixed(3)} km` : '');
 
   const schedNext = dia && st.next ? dia.entries[st.next.id] ?? null : null;
-  if (schedNext != null) {
-    setText('#cMainLbl', '次駅 予定');
-    setText('#cMain', fmtClock(run.startTime + schedNext * 1000));
-    setText('#cElapsed', `経過 ${fmtDur(el)}`);
-  } else {
-    setText('#cMainLbl', '経過');
-    setText('#cMain', fmtDur(el));
-    setText('#cElapsed', `発 ${fmtClock(run.startTime)}`);
-  }
+  setText('#cEl', fmtDur(el));
   setText('#cNow', fmtClock(now));
+  $('#rowSched').hidden = schedNext == null;
+  setText('#cSched', schedNext == null ? '' : fmtClock(run.startTime + schedNext * 1000));
+  $('#blkDiff').hidden = !dia;
+  setText('#cElapsed', `発 ${fmtClock(run.startTime)}`);
 
   let diff = null;
   if (dia) {

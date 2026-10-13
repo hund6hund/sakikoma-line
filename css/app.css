@@ -11,6 +11,7 @@
   --green: #3dff6e;
   --red: #ff4b3a;
   --cyan: #4fd8ff;
+  --orange: #ff8c1a;
   --btn: #222;
   --btn-fg: #fff;
 }
@@ -24,11 +25,13 @@
   --green: #006b1f;
   --red: #c00000;
   --cyan: #00558a;
+  --orange: #b34700;
   --btn: #e4e4e4;
   --btn-fg: #000;
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
 body {
   font-family: system-ui, "Noto Sans JP", "Hiragino Sans", sans-serif;
@@ -157,7 +160,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .7); }
 /* ---------- 運転台（運転中） ---------- */
 .cab {
   display: flex; flex-direction: column; gap: 6px;
-  min-height: 100vh; padding: 8px 0 12px;
+  height: 100vh; height: 100dvh; padding: 8px 0 12px; overflow: hidden;
 }
 .cab .lbl { font-size: 14px; color: var(--muted); font-weight: 700; letter-spacing: .1em; }
 .cab-status {
@@ -181,14 +184,20 @@ dialog::backdrop { background: rgba(0, 0, 0, .7); }
 #cDiff[data-state="early"] { color: var(--green); }
 #cDiff[data-state="ontime"] { color: var(--fg); }
 #cReq[data-state="over"] { color: var(--red); font-size: clamp(18px, 5.5vw, 30px); }
-.cab-now { font-size: clamp(20px, 6.5vw, 34px); font-weight: 800; color: var(--fg); margin-top: 2px; }
-.cab-now .lbl { font-size: 14px; }
-.cab-meter {
-  display: grid; grid-template-columns: 1.15fr 1fr; gap: 8px; align-items: center;
-  border-bottom: 2px solid var(--line); padding-bottom: 6px;
+.cab-next[data-state="inside"] { color: var(--orange); }
+.cab-times { display: grid; gap: 2px; }
+.trow { display: flex; align-items: baseline; gap: 10px; font-size: clamp(22px, 7vw, 36px); }
+.trow .lbl { font-size: 14px; min-width: 4.5em; }
+.trow .seg { color: var(--fg); }
+.trow .t-el { color: var(--amber); }
+.trow .t-sched { color: var(--cyan); }
+.cab-side {
+  display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  border-top: 2px solid var(--line); padding-top: 4px;
 }
-.cab-side { display: grid; gap: 10px; }
-.gauge { width: 100%; height: auto; display: block; max-height: 34vh; }
+.cab-side .seg-m { font-size: clamp(20px, 6.5vw, 32px); }
+.cab-gauge { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+.gauge { width: 100%; height: 100%; max-height: 52vh; display: block; }
 .gauge .g-rim { fill: none; stroke: var(--line); stroke-width: 6; }
 .gauge .g-red { fill: none; stroke: var(--red); stroke-width: 6; }
 .gauge .tk { stroke: var(--muted); stroke-width: 2; }
