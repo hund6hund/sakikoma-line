@@ -6,16 +6,41 @@
 //   1908 Hz  弱い低い成分（同じくうなりあり）
 // 余韻は手本（約1秒）より短く、0.5秒ほどで消えるようにしてある。
 // ブラウザは操作なしに音を出せないので、運転開始のボタン操作で unlock() する。
+// 画面の消灯・アプリの切り替え・通話などで音声が止まる（suspended / interrupted）ことがあるので、
+// 鳴らす前と、画面に触れたとき・画面が戻ったときに再開を試みる。
 
 let ctx = null;
 
+function wake() {
+  if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().catch(() => {});
+}
+
 export function unlock() {
   try {
-    ctx ||= new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === 'suspended') ctx.resume();
+    if (!ctx || ctx.state === 'closed') ctx = new (window.AudioContext || window.webkitAudioContext)();
+    wake();
   } catch {
     ctx = null;
   }
+}
+
+/** 音声を作り直す（「データ」タブのリセット）。ボタン操作の中で呼ぶこと */
+export function reset() {
+  try {
+    ctx?.close().catch(() => {});
+  } catch { /* 閉じられなくても作り直す */ }
+  ctx = null;
+  unlock();
+}
+
+/** 状態：'running'（鳴らせる）/ 'suspended' / 'interrupted' / 'none'（未準備） */
+export function soundState() {
+  return ctx ? ctx.state : 'none';
+}
+
+/** 画面が戻ったときなど、操作なしで再開を試みる（新しくは作らない） */
+export function resume() {
+  wake();
 }
 
 // [周波数 Hz, 振幅, 減衰の時定数 秒]
@@ -65,8 +90,8 @@ export function strike(ac, out, t0, vol) {
  * volume: 0〜100（0 で鳴らさない）
  */
 export function chime(kind, volume) {
-  if (!ctx || !(volume > 0)) return;
-  if (ctx.state === 'suspended') ctx.resume();
+  if (!ctx || ctx.state === 'closed' || !(volume > 0)) return;
+  wake();
   const v = Math.min(1, volume / 100) * 0.48; // 音量100で振幅の山が約0.9（音割れしない）
   const t = ctx.currentTime + 0.02;
   strike(ctx, ctx.destination, t, v);

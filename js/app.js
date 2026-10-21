@@ -9,7 +9,7 @@ import { RunEngine } from './engine.js';
 import { GeoLocator, SimLocator, SIM, clock, getOnce } from './locator.js';
 import * as ana from './analysis.js';
 import * as ex from './exporter.js';
-import { unlock as unlockSound, chime } from './sound.js';
+import { unlock as unlockSound, chime, soundState, resume as resumeSound, reset as resetSound } from './sound.js';
 import { gaugeSvg, setGauge } from './gauge.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -271,8 +271,13 @@ function releaseWake() {
   app.cur?.wake?.release().catch(() => {});
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && app.cur && !app.cur.ended) acquireWake();
+  if (document.visibilityState === 'visible' && app.cur && !app.cur.ended) {
+    acquireWake();
+    resumeSound();
+  }
 });
+// 運転中に画面のどこかに触れたら、止まっていた音声を再開する（触れることがブラウザの許可条件）
+document.addEventListener('pointerdown', () => { if (app.cur) unlockSound(); }, true);
 
 // ---------------- 運転台（運転中） ----------------
 function renderCabRunning() {
@@ -968,7 +973,12 @@ function renderData() {
         ${num('mergeSec', '同じ駅への再進入をまとめる', '秒以内')}
         ${num('maskRadius', '起点を伏せるときに除く範囲', 'm')}
         ${num('chimeVol', '通過・到着の鈴の音量', '0〜100。0で鳴らさない')}
-        <div class="row gap"><button type="button" id="tryPass" class="btn btn-small">通過の音を試す</button><button type="button" id="tryArr" class="btn btn-small">到着の音を試す</button></div>
+        <div class="row wrap gap">
+          <button type="button" id="tryPass" class="btn btn-small">通過の音を試す</button>
+          <button type="button" id="tryArr" class="btn btn-small">到着の音を試す</button>
+          <button type="button" id="resetSnd" class="btn btn-small">鈴をリセット</button>
+        </div>
+        <span id="sndMsg" class="muted small">鈴が鳴らないときは「鈴をリセット」を押してください（音声を作り直して1回鳴らします）。</span>
         <label>表示 <select name="theme">
           <option value="night" ${S.theme === 'night' ? 'selected' : ''}>黒地（標準）</option>
           <option value="day" ${S.theme === 'day' ? 'selected' : ''}>白地（直射日光下）</option>
@@ -1023,6 +1033,14 @@ function renderData() {
       chime(kind, Number($('#setForm').chimeVol.value) || 0);
     });
   }
+  $('#resetSnd').addEventListener('click', () => {
+    resetSound();
+    chime('pass', Number($('#setForm').chimeVol.value) || 0);
+    setTimeout(() => {
+      const st = soundState();
+      $('#sndMsg').textContent = st === 'running' ? 'リセットしました（鳴らせる状態です）。' : `リセットしましたが、まだ鳴らせない状態です（${st}）。もう一度押してください。`;
+    }, 300);
+  });
   $('#setForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;

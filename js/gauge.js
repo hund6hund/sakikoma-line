@@ -1,4 +1,4 @@
-// 運転台の時速計（アナログ指針＋数字）。値の変化は瞬時に切り替え、指針は動かさずに描き直す。
+// 運転台の時速計（アナログ指針＋数字）。数字は瞬時に切り替え、指針は滑らかに動かす。
 
 const MAX = 50; // 目盛りの最大 km/h
 const A0 = 135; // 0 km/h の角度（度、右が0で時計回り）
@@ -43,25 +43,63 @@ export function gaugeSvg(capKmh) {
   </svg>`;
 }
 
+// 指針はGPSの更新（約1秒ごと）で跳ばないよう、目標値へ指数的に近づけて動かす。数字は即時に切り替える。
+const TAU = 0.5; // 指針が新しい値の約63%まで動く秒数
+const anim = new WeakMap(); // root -> { cur, target, raf, last }
+
+function drawNeedle(needle, v) {
+  const [x, y] = pt(ang(v), 78);
+  needle.setAttribute('x2', x.toFixed(1));
+  needle.setAttribute('y2', y.toFixed(1));
+}
+
 /** 指針・数字・必要時速の目印を更新する（kmh / req が null なら非表示） */
 export function setGauge(root, kmh, req) {
   const needle = root.querySelector('#gNeedle');
   const num = root.querySelector('#gNum');
   const mark = root.querySelector('#gReq');
   if (!needle) return;
-  const [x, y] = pt(ang(kmh ?? 0), 78);
-  needle.setAttribute('x2', x.toFixed(1));
-  needle.setAttribute('y2', y.toFixed(1));
-  needle.style.visibility = kmh == null ? 'hidden' : 'visible';
+  let a = anim.get(root);
+  if (!a) {
+    a = { cur: kmh ?? 0, target: kmh ?? 0, raf: 0, last: 0 };
+    anim.set(root, a);
+    drawNeedle(needle, a.cur);
+  }
+  if (kmh == null) {
+    cancelAnimationFrame(a.raf);
+    a.raf = 0;
+    a.cur = a.target = 0;
+    needle.style.visibility = 'hidden';
+  } else {
+    needle.style.visibility = 'visible';
+    a.target = Math.max(0, Math.min(MAX, kmh));
+    // 画面が裏に回っていたあいだの描画予約が残っていたら取り直す
+    if (a.raf && performance.now() - a.last > 300) {
+      cancelAnimationFrame(a.raf);
+      a.raf = 0;
+    }
+    if (!a.raf && a.cur !== a.target) {
+      a.last = performance.now();
+      const step = (now) => {
+        const dt = Math.min(0.2, (now - a.last) / 1000);
+        a.last = now;
+        a.cur += (a.target - a.cur) * (1 - Math.exp(-dt / TAU));
+        if (Math.abs(a.target - a.cur) < 0.05) a.cur = a.target;
+        drawNeedle(needle, a.cur);
+        a.raf = a.cur !== a.target && needle.isConnected ? requestAnimationFrame(step) : 0;
+      };
+      a.raf = requestAnimationFrame(step);
+    }
+  }
   const s = kmh == null ? '--' : String(Math.round(kmh));
   if (num.textContent !== s) num.textContent = s;
   if (req == null) {
     mark.style.visibility = 'hidden';
   } else {
-    const a = ang(req);
-    const tip = pt(a, 94);
-    const l = pt(a - 4, 104);
-    const r = pt(a + 4, 104);
+    const ra = ang(req);
+    const tip = pt(ra, 94);
+    const l = pt(ra - 4, 104);
+    const r = pt(ra + 4, 104);
     mark.setAttribute('points', [tip, l, r].map((p) => p.map((n) => n.toFixed(1)).join(',')).join(' '));
     mark.style.visibility = 'visible';
   }
