@@ -85,15 +85,113 @@ export function strike(ac, out, t0, vol) {
   src.start(t0);
 }
 
+// ---------------- 音声ファイル方式 ----------------
+// 端末によっては Web Audio の出力だけが届かないことがあるので、同じ鈴を
+// OfflineAudioContext（スピーカーを使わない描画）で WAV にして <audio> で鳴らす方式も用意する。
+
+function encodeWav(x, sr) {
+  const b = new ArrayBuffer(44 + x.length * 2);
+  const d = new DataView(b);
+  const str = (o, s) => [...s].forEach((c, i) => d.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF');
+  d.setUint32(4, 36 + x.length * 2, true);
+  str(8, 'WAVEfmt ');
+  d.setUint32(16, 16, true);
+  d.setUint16(20, 1, true);
+  d.setUint16(22, 1, true);
+  d.setUint32(24, sr, true);
+  d.setUint32(28, sr * 2, true);
+  d.setUint16(32, 2, true);
+  d.setUint16(34, 16, true);
+  str(36, 'data');
+  d.setUint32(40, x.length * 2, true);
+  for (let i = 0; i < x.length; i++) d.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 32767, true);
+  return b;
+}
+
+const fileUrl = {};
+function renderFile(kind) {
+  return (fileUrl[kind] ||= (async () => {
+    const sr = 44100;
+    const oc = new OfflineAudioContext(1, Math.round(sr * (kind === 'arrive' ? 1.2 : 1.0)), sr);
+    strike(oc, oc.destination, 0.01, 0.48);
+    if (kind === 'arrive') strike(oc, oc.destination, 0.21, 0.48);
+    const buf = await oc.startRendering();
+    return URL.createObjectURL(new Blob([encodeWav(buf.getChannelData(0), sr)], { type: 'audio/wav' }));
+  })());
+}
+
+/** 起動時に呼んで、鳴らすときに待たないようにしておく */
+export function prepareFiles() {
+  renderFile('pass').catch(() => {});
+  renderFile('arrive').catch(() => {});
+}
+
+const fileEl = {};
+async function playFile(kind, volume) {
+  const url = await renderFile(kind);
+  const el = (fileEl[kind] ||= new Audio(url));
+  el.volume = Math.min(1, volume / 100);
+  el.currentTime = 0;
+  await el.play();
+}
+
+// ---------------- 鳴らす ----------------
+let method = 'webaudio'; // 'webaudio' | 'file'
+export function setMethod(m) {
+  method = m === 'file' ? 'file' : 'webaudio';
+}
+
 /**
  * kind: 'pass'（駅の通過、1回）/ 'arrive'（到着、0.2秒間隔で2回）
  * volume: 0〜100（0 で鳴らさない）
+ * how: 方式を指定するとき（診断用）。省略すると設定の方式。
+ * 戻り値の Promise は、鳴らす処理がどこまで進んだかの説明で解決する（診断の表示用）。
  */
-export function chime(kind, volume) {
-  if (!ctx || ctx.state === 'closed' || !(volume > 0)) return;
+export async function chime(kind, volume, how = method) {
+  if (!(volume > 0)) return '音量0のため鳴らしていません';
+  if (how === 'file') {
+    try {
+      await playFile(kind, volume);
+      return '音声ファイル方式：再生を開始しました';
+    } catch (e) {
+      return `音声ファイル方式：再生できませんでした（${e.name}: ${e.message}）`;
+    }
+  }
+  if (!ctx || ctx.state === 'closed') return 'Web Audio：未準備（運転開始かリセットで準備されます）';
   wake();
   const v = Math.min(1, volume / 100) * 0.48; // 音量100で振幅の山が約0.9（音割れしない）
   const t = ctx.currentTime + 0.02;
   strike(ctx, ctx.destination, t, v);
   if (kind === 'arrive') strike(ctx, ctx.destination, t + 0.2, v);
+  return `Web Audio：鳴らしました（状態 ${ctx.state}）`;
+}
+
+/**
+ * 診断：新しい Web Audio で単純な音（880 Hz、0.6秒）を鳴らし、
+ * 時計が進んでいるか（＝音が実際に出力へ流れているか）を調べる。ボタン操作の中で呼ぶこと。
+ */
+export async function beepTest() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return 'この端末では Web Audio が使えません';
+  const ac = new AC();
+  await ac.resume().catch(() => {});
+  const t0 = ac.currentTime;
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.frequency.value = 880;
+  g.gain.setValueAtTime(0.3, ac.currentTime);
+  g.gain.setTargetAtTime(0, ac.currentTime + 0.5, 0.05);
+  osc.connect(g).connect(ac.destination);
+  osc.start();
+  osc.stop(ac.currentTime + 0.8);
+  await new Promise((r) => setTimeout(r, 500));
+  const info = [
+    `状態 ${ac.state}`,
+    `時計の進み ${((ac.currentTime - t0) * 1000).toFixed(0)} ms／0.5秒`,
+    `標本化 ${ac.sampleRate} Hz`,
+    ac.baseLatency != null ? `遅延 ${(ac.baseLatency * 1000).toFixed(0)}+${((ac.outputLatency || 0) * 1000).toFixed(0)} ms` : '',
+  ].filter(Boolean).join('、');
+  setTimeout(() => ac.close().catch(() => {}), 1000);
+  return `単純な音（Web Audio）：${info}`;
 }

@@ -9,7 +9,10 @@ import { RunEngine } from './engine.js';
 import { GeoLocator, SimLocator, SIM, clock, getOnce } from './locator.js';
 import * as ana from './analysis.js';
 import * as ex from './exporter.js';
-import { unlock as unlockSound, chime, soundState, resume as resumeSound, reset as resetSound } from './sound.js';
+import {
+  unlock as unlockSound, chime, soundState, resume as resumeSound, reset as resetSound,
+  prepareFiles, setMethod as setSoundMethod, beepTest,
+} from './sound.js';
 import { gaugeSvg, setGauge } from './gauge.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -34,6 +37,7 @@ async function loadAll() {
   app.settings = { ...DEFAULT_SETTINGS, ...(await db.getKv('settings', {})) };
   app.dias = (await db.all('dias')).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
   document.documentElement.dataset.theme = app.settings.theme;
+  setSoundMethod(app.settings.chimeMethod);
 }
 
 async function init() {
@@ -42,6 +46,7 @@ async function init() {
   app.resumeRun = (await db.all('runs')).find((r) => r.status === 'running') || null;
   $$('#nav button').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab)));
   if (SIM) $('#simBadge').hidden = false;
+  prepareFiles();
   show('cab');
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -973,12 +978,26 @@ function renderData() {
         ${num('mergeSec', '同じ駅への再進入をまとめる', '秒以内')}
         ${num('maskRadius', '起点を伏せるときに除く範囲', 'm')}
         ${num('chimeVol', '通過・到着の鈴の音量', '0〜100。0で鳴らさない')}
+        <label>鈴の鳴らし方 <select name="chimeMethod">
+          <option value="webaudio" ${S.chimeMethod !== 'file' ? 'selected' : ''}>Web Audio（標準）</option>
+          <option value="file" ${S.chimeMethod === 'file' ? 'selected' : ''}>音声ファイル（Web Audio で鳴らないとき）</option>
+        </select></label>
         <div class="row wrap gap">
           <button type="button" id="tryPass" class="btn btn-small">通過の音を試す</button>
           <button type="button" id="tryArr" class="btn btn-small">到着の音を試す</button>
           <button type="button" id="resetSnd" class="btn btn-small">鈴をリセット</button>
         </div>
         <span id="sndMsg" class="muted small">鈴が鳴らないときは「鈴をリセット」を押してください（音声を作り直して1回鳴らします）。</span>
+        <fieldset>
+          <legend>音の診断</legend>
+          <p class="muted small">①〜③を順に押して、それぞれ音が聞こえたかを確かめてください。下に出る文は不具合の調査に使います。</p>
+          <div class="row wrap gap">
+            <button type="button" id="diag1" class="btn btn-small">① 単純な音（Web Audio）</button>
+            <button type="button" id="diag2" class="btn btn-small">② 鈴（Web Audio）</button>
+            <button type="button" id="diag3" class="btn btn-small">③ 鈴（音声ファイル）</button>
+          </div>
+          <pre id="sndDiag" class="diag"></pre>
+        </fieldset>
         <label>表示 <select name="theme">
           <option value="night" ${S.theme === 'night' ? 'selected' : ''}>黒地（標準）</option>
           <option value="day" ${S.theme === 'day' ? 'selected' : ''}>白地（直射日光下）</option>
@@ -1027,15 +1046,30 @@ function renderData() {
     await loadAll();
     show('ledger');
   });
+  const vol = () => Number($('#setForm').chimeVol.value) || 0;
+  const how = () => $('#setForm').chimeMethod.value;
   for (const [id, kind] of [['#tryPass', 'pass'], ['#tryArr', 'arrive']]) {
     $(id).addEventListener('click', () => {
       unlockSound();
-      chime(kind, Number($('#setForm').chimeVol.value) || 0);
+      chime(kind, vol(), how());
     });
   }
+  const diagLog = (label, text) => {
+    const el = $('#sndDiag');
+    el.textContent += `${label} ${text}
+`;
+  };
+  $('#diag1').addEventListener('click', async () => diagLog('①', await beepTest()));
+  $('#diag2').addEventListener('click', async () => {
+    unlockSound();
+    diagLog('②', await chime('pass', vol(), 'webaudio'));
+  });
+  $('#diag3').addEventListener('click', async () => diagLog('③', await chime('pass', vol(), 'file')));
+  $('#sndDiag').textContent = `${navigator.userAgent.match(/(Chrome|CriOS|Firefox|Version)\/[\d.]+/)?.[0] ?? ''} ${/Android [\d.]+/.exec(navigator.userAgent)?.[0] ?? ''}
+`;
   $('#resetSnd').addEventListener('click', () => {
     resetSound();
-    chime('pass', Number($('#setForm').chimeVol.value) || 0);
+    chime('pass', vol(), 'webaudio');
     setTimeout(() => {
       const st = soundState();
       $('#sndMsg').textContent = st === 'running' ? 'リセットしました（鳴らせる状態です）。' : `リセットしましたが、まだ鳴らせない状態です（${st}）。もう一度押してください。`;
@@ -1044,7 +1078,7 @@ function renderData() {
   $('#setForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    const patch = { theme: f.theme.value };
+    const patch = { theme: f.theme.value, chimeMethod: f.chimeMethod.value };
     for (const k of ['radius', 'stopKmh', 'flagSec', 'arrivalSec', 'reqCapKmh', 'poorAcc', 'hyst', 'departFixes', 'mergeSec', 'maskRadius', 'chimeVol']) {
       const v = Number(f[k].value);
       if (!isFinite(v) || v < 0) return alert(`${k} の値が不正です`);
@@ -1054,6 +1088,7 @@ function renderData() {
     if (!bands.length) return alert('時間帯を1つ以上入れてください');
     patch.bands = bands.map(([name, start, end]) => ({ name, start, end }));
     await saveSettings(patch);
+    setSoundMethod(patch.chimeMethod);
     $('#setMsg').textContent = '保存しました。';
   });
 }
