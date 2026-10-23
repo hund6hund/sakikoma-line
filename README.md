@@ -15,6 +15,7 @@
 | `js/db.js` | IndexedDB |
 | `sw.js` / `manifest.webmanifest` | オフライン動作とホーム画面への追加 |
 | `tests/engine.test.html` | 判定エンジンの試験（ブラウザで開く） |
+| `fonts/` | BIZ UDPゴシック（SIL Open Font License 1.1、`fonts/OFL.txt`）。アプリで使う文字・かな・JIS第1水準漢字に絞って woff2 にしたもの。台帳にそれ以外の漢字があれば、その文字だけ端末の書体で表示される。`SakikomaUDPNum-Bold.woff2` は BIZ UDPゴシック Bold の英数字から作った改変版で、時刻の桁が揺れないよう「1」の幅を他の数字にそろえ、名前を変えてある |
 | `sample-stations.json` | 試用の台帳（**座標とキロ程はすべて仮**） |
 
 ## 動かし方

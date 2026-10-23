@@ -12,29 +12,51 @@
   --red: #ff4b3a;
   --cyan: #4fd8ff;
   --orange: #ff8c1a;
+  --magenta: #ff5ce1;
+  --panel-bg: #0b0d10;
+  --win-bg: #000;
+  --eta-bg: #000;
+  --dim: #8a8f95;
+  --panel-line: #2b3036;
+  --tag-bg: #262b31;
+  --tag-fg: #c9d1d9;
   --btn: #222;
   --btn-fg: #fff;
 }
 :root[data-theme="day"] {
-  --bg: #fff;
+  --bg: #dde1e5;
   --panel: #f1f1f1;
   --line: #888;
   --fg: #000;
-  --muted: #444;
+  --muted: #2f3438;
   --amber: #8a4b00;
-  --green: #006b1f;
+  --green: #00561a;
   --red: #c00000;
   --cyan: #00558a;
   --orange: #b34700;
+  --magenta: #a1007f;
+  --panel-bg: #f2f4f6;
+  --win-bg: #ffffff;
+  --eta-bg: #d6f3df;
+  --dim: #6b7280;
+  --panel-line: #9aa1a8;
+  --tag-bg: #2b3036;
+  --tag-fg: #ffffff;
   --btn: #e4e4e4;
   --btn-fg: #000;
 }
+
+/* UDフォント（BIZ UDPゴシック、SIL OFL 1.1。fonts/OFL.txt）。アプリで使う文字とJIS第1水準漢字に絞って同梱。
+   数字用の SakikomaUDPNum は BIZ UDPゴシックの英数字から作り、「1」だけ幅を他の数字にそろえたもの（時刻の桁が揺れない） */
+@font-face { font-family: "SakikomaUD"; src: url("../fonts/BIZUDPGothic-Regular.woff2") format("woff2"); font-weight: 100 500; font-display: swap; }
+@font-face { font-family: "SakikomaUD"; src: url("../fonts/BIZUDPGothic-Bold.woff2") format("woff2"); font-weight: 600 900; font-display: swap; }
+@font-face { font-family: "SakikomaUDNum"; src: url("../fonts/SakikomaUDPNum-Bold.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); }
 body {
-  font-family: system-ui, "Noto Sans JP", "Hiragino Sans", sans-serif;
+  font-family: "SakikomaUD", system-ui, "Noto Sans JP", "Hiragino Sans", sans-serif;
   font-size: 16px;
   line-height: 1.45;
   min-height: 100vh;
@@ -42,7 +64,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .num, .seg, input, .kv td, code {
-  font-family: ui-monospace, "Roboto Mono", "Noto Sans Mono", "DejaVu Sans Mono", Consolas, monospace;
+  font-family: "SakikomaUDNum", "SakikomaUD", ui-monospace, "Roboto Mono", "Noto Sans Mono", monospace;
   font-variant-numeric: tabular-nums;
 }
 
@@ -157,57 +179,112 @@ dialog::backdrop { background: rgba(0, 0, 0, .7); }
 }
 .btn-start:disabled { opacity: .35; }
 
-/* ---------- 運転台（運転中） ---------- */
+/* ---------- 運転台（運転中） ----------
+   グラスコクピット風。まとまりは線ではなく「面」と「余白」で示す（パネルは地よりわずかに明るい面、
+   数字窓はパネルより一段暗い面）。色の意味は固定する：
+     白＝実測（現在時刻・速度・経過）  水色＝計画（ダイヤ）  緑＝予測・正常（着予想・GPS）
+     マゼンタ＝目標（区間の目安速度）  アンバー＝状態（構内・停車）と指針  赤＝警告・遅れ
+   文字の大きさは3段階だけ使う（13・18・26px 相当。幅390pxの画面で）。
+   着予想は色で十分目立つので、現在・次駅予定と同じ「大」の数字窓に収める。駅名も「大」にして左上を時刻の格子に譲る */
 .cab {
-  display: flex; flex-direction: column; gap: 6px;
-  height: 100vh; height: 100dvh; padding: 8px 0 12px; overflow: hidden;
+  --fs-s: 13px;
+  --fs-m: 18px;
+  --fs-l: clamp(20px, 6.6vw, 34px);
+  font-family: "SakikomaUDNum", "SakikomaUD", system-ui, sans-serif; /* 運転台の数字はすべて幅のそろった UDP の数字 */
+  display: flex; flex-direction: column; gap: 10px;
+  height: 100vh; height: 100dvh; padding: 8px 0 10px; overflow: hidden;
 }
-.cab .lbl { font-size: 14px; color: var(--muted); font-weight: 700; letter-spacing: .1em; }
-.cab-status {
-  display: flex; justify-content: space-between; gap: 8px;
-  font-size: 15px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px;
-}
+.cab .seg { font-weight: 700; line-height: 1.05; }
+.cab-head { display: flex; align-items: baseline; gap: 12px; font-size: var(--fs-s); font-weight: 700; padding: 0 2px; }
+.trainno { color: var(--muted); letter-spacing: .04em; }
+.dir { flex: 1; color: var(--fg); }
+.gps { border-radius: 3px; padding: 0 6px; }
 .gps[data-state="good"] { color: var(--green); }
 .gps[data-state="fair"] { color: var(--amber); }
-.gps[data-state="bad"] { color: var(--bg); background: var(--red); padding: 0 6px; }
-.cab-block { border-bottom: 2px solid var(--line); padding: 4px 0 6px; }
+.gps[data-state="bad"] { color: var(--bg); background: var(--red); }
+.gps[data-state="paused"] { color: var(--amber); }
+
+.panel { background: var(--panel-bg); border-radius: 10px; padding: 8px 12px 10px; }
+.ptag-row { display: flex; align-items: baseline; gap: 8px; }
+.ptag { color: var(--muted); font-size: var(--fs-s); font-weight: 700; letter-spacing: .14em; }
+.ptag-note { font-size: var(--fs-s); color: var(--muted); font-weight: 700; }
+.ptag-note[data-state="inside"] { color: var(--amber); }
+.ptag-right { margin-left: auto; font-size: var(--fs-m); font-weight: 700; }
+.ro-l { font-size: var(--fs-s); color: var(--muted); font-weight: 700; letter-spacing: .1em; }
+.ro > .ro-l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* 窓のラベルは1行（行き先が長ければ「…」） */
+.ro-l .dest { letter-spacing: 0; }
+.next-row { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 8px; }
 .cab-next {
-  font-size: clamp(30px, 11vw, 64px); font-weight: 900; line-height: 1.1; color: var(--fg);
-  overflow-wrap: anywhere;
+  flex: 1; min-width: 0; font-size: var(--fs-l); font-weight: 700; line-height: 1.2; color: var(--fg);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-.cab-sub { font-size: 16px; color: var(--muted); font-weight: 700; }
-.seg { font-weight: 800; line-height: 1.05; letter-spacing: .02em; }
-.seg-xl { font-size: clamp(48px, 19vw, 120px); color: var(--amber); }
-.seg-l { font-size: clamp(40px, 15vw, 96px); min-height: 1.05em; }
-.seg-m { font-size: clamp(22px, 8vw, 44px); color: var(--fg); }
+.next-remain { flex: 0 0 auto; font-size: var(--fs-m); font-weight: 700; white-space: nowrap; }
+.cab-next[data-state="inside"] { color: var(--amber); }
+/* 時刻の網の目：左列＝実際と予測（現在・着予想）、右列＝計画とのずれ（次駅予定・定時差） */
+.tgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ro { border-radius: 6px; background: var(--win-bg); padding: 4px 10px 6px; }
+.ro-eta { background: var(--eta-bg); } /* 白地では緑の数字が沈むので、窓を淡い緑にして目立たせる */
+.ro-v { font-size: var(--fs-l); color: var(--fg); }
+.ro-v.c-plan { color: var(--cyan); }
+.ro-v[data-state="none"] { color: var(--muted); opacity: .5; }
+
+.ro-v.c-eta { color: var(--green); }
+.ro-v .sec { font-size: .55em; vertical-align: top; margin-left: .08em; position: relative; top: .08em; }
+#cDiff { font-size: var(--fs-m); color: var(--fg); margin-top: 4px; } /* 定時差は優先度が低いので一段小さく */
+#cDiff[data-state="none"] { color: var(--muted); opacity: .5; }
 #cDiff[data-state="late"] { color: var(--red); }
 #cDiff[data-state="ontime"] { color: var(--fg); }
-.cab-next[data-state="inside"] { color: var(--orange); }
-.cab-times { display: grid; gap: 2px; }
-.trow { display: flex; align-items: baseline; gap: 10px; font-size: clamp(22px, 7vw, 36px); }
-.trow .lbl { font-size: 14px; min-width: 4.5em; }
-.trow .seg { color: var(--fg); }
-.trow .t-el { color: var(--amber); }
-.trow .t-sched { color: var(--cyan); }
-.trow .t-eta { color: var(--green); }
-.cab-side {
-  display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
-  border-top: 2px solid var(--line); padding-top: 4px;
-}
-.cab-side .seg-m { font-size: clamp(20px, 6.5vw, 32px); }
+
+.strip { display: flex; align-items: baseline; gap: 10px; background: var(--panel-bg); border-radius: 10px; padding: 8px 12px; }
+.prev { font-size: var(--fs-m); font-weight: 700; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.prevtime { font-size: var(--fs-m); font-weight: 700; color: var(--dim); } /* 前駅の時刻は優先度が低いので弱く */
+.prevflag { font-size: var(--fs-m); font-weight: 700; color: var(--amber); }
+.prevflag:empty, .stopbadge:empty { display: none; }
+.stopbadge { margin-left: auto; font-size: var(--fs-m); font-weight: 700; color: var(--amber); border: 1.5px solid var(--amber); border-radius: 4px; padding: 0 8px; }
+
 .cab-gauge { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
-.gauge { width: 100%; height: 100%; max-height: 52vh; display: block; }
-.gauge .g-rim { fill: none; stroke: var(--line); stroke-width: 6; }
-.gauge .g-red { fill: none; stroke: var(--red); stroke-width: 6; }
+.gauge { width: 100%; height: 100%; max-height: 50vh; display: block; }
+.gauge .g-face { fill: var(--panel-bg); stroke: none; }
+.gauge .g-rim { fill: none; stroke: var(--tag-bg); stroke-width: 8; }
+.gauge .g-red { fill: none; stroke: var(--red); stroke-width: 8; }
 .gauge .tk { stroke: var(--muted); stroke-width: 2; }
 .gauge .tk-major { stroke: var(--fg); stroke-width: 3.5; }
-.gauge .tk-num { fill: var(--fg); font-size: 15px; font-weight: 800; text-anchor: middle; font-family: ui-monospace, "Roboto Mono", monospace; }
+.gauge .tk-num { fill: var(--fg); font-size: 15px; font-weight: 700; text-anchor: middle; font-family: "SakikomaUDNum", ui-monospace, monospace; }
 .gauge .g-needle { stroke: var(--amber); stroke-width: 5; stroke-linecap: round; }
-.gauge .g-hub { fill: var(--amber); }
-.gauge .g-req { fill: var(--green); }
-.gauge .g-num { fill: var(--fg); font-size: 36px; font-weight: 900; text-anchor: middle; font-family: ui-monospace, "Roboto Mono", monospace; }
-.gauge .g-unit { fill: var(--muted); font-size: 12px; font-weight: 700; text-anchor: middle; }
-.cab-prev { font-size: 18px; font-weight: 700; }
-.cab-stop { font-size: 22px; font-weight: 900; color: var(--cyan); min-height: 1.3em; }
-.cab-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; }
+.gauge .g-hub { fill: var(--panel-bg); stroke: var(--amber); stroke-width: 2.5; }
+.gauge .g-hub-in { fill: var(--amber); }
+.gauge .g-req { fill: var(--magenta); }
+.gauge .g-box { fill: var(--win-bg); stroke: none; }
+.gauge .g-num { fill: var(--fg); font-size: 24px; font-weight: 700; text-anchor: middle; font-family: "SakikomaUDNum", ui-monospace, monospace; }
+.gauge .g-unit { fill: var(--muted); font-size: 11px; font-weight: 700; text-anchor: middle; letter-spacing: .1em; }
+.cab-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: var(--fs-s); color: var(--muted); }
+
+/* 一時停止中：前駅の帯をその場で置き換え（配置を変えない）、古くなる予測は灰色に、時速計は暗く */
+.strip-run, .strip-pause { display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; }
+/* 帯は必ず1行：駅名だけが縮んで「…」になり、ほかは折り返さない */
+.strip-run > *, .strip-pause > * { white-space: nowrap; flex: 0 0 auto; }
+.strip-run > .prev { flex: 0 1 auto; }
+/* 停車中は札に場所を譲るため、優先度の低い前駅の通過時刻を隠す */
+.cab[data-stopping="1"] .prevtime { display: none; }
+.strip-pause { display: none; color: var(--amber); font-size: var(--fs-m); font-weight: 700; }
+.pausehint { margin-left: auto; font-size: var(--fs-s); color: var(--muted); }
+.cab[data-paused="1"] .strip { outline: 1.5px solid var(--amber); outline-offset: -1.5px; }
+.cab[data-paused="1"] .strip-run { display: none; }
+.cab[data-paused="1"] .strip-pause { display: flex; }
+.cab[data-paused="1"] #cEta, .cab[data-paused="1"] #cDiff { color: var(--muted); opacity: .5; }
+.cab[data-paused="1"] .ro-eta { background: var(--win-bg); }
+.cab[data-paused="1"] .gauge { opacity: .4; }
+
+/* 停止ボタン：短押しで一時停止／再開、長押しで運転終了。押しているあいだ赤い帯が左から伸びる */
+.stopbtn {
+  position: relative; overflow: hidden; flex: 0 0 auto;
+  min-width: 132px; padding: 8px 14px; border-radius: 8px;
+  background: var(--panel-bg); color: var(--fg); border: 1.5px solid var(--red);
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.stopbtn-fill { position: absolute; inset: 0; background: var(--red); opacity: .35; transform: scaleX(0); transform-origin: left; }
+.stopbtn.holding .stopbtn-fill { transform: scaleX(1); transition: transform 1.5s linear; }
+.stopbtn-label { position: relative; display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.stopbtn-label b { font-size: var(--fs-m); }
+.stopbtn-label small { font-size: 11px; color: var(--muted); }
 .diag { white-space: pre-wrap; font-size: 12px; color: var(--muted); margin: 6px 0 0; font-family: ui-monospace, monospace; }

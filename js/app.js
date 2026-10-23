@@ -5,7 +5,7 @@ import {
   computeKm, hasCoord, dist, esc, fmtDate, fmtClock, fmtDateTime, fmtDur, fmtSigned, parseDur,
   download, TYPE_LABEL, SRC_LABEL, DIR_LABEL, DEFAULT_SETTINGS, WEEKDAYS, inBand, median,
 } from './util.js';
-import { RunEngine } from './engine.js';
+import { RunEngine, replay } from './engine.js';
 import { GeoLocator, SimLocator, SIM, clock, getOnce } from './locator.js';
 import * as ana from './analysis.js';
 import * as ex from './exporter.js';
@@ -255,22 +255,56 @@ async function loadPace(cur) {
 async function beginRunning(run, track) {
   const cur = { run, dia: app.dias.find((d) => d.id === run.diaId) ?? null, ended: false, replaying: true, err: null, chimed: new Set() };
   cur.engine = makeEngine(run, cur);
-  for (const p of track) cur.engine.feed(p);
+  replay(cur.engine, track, run.pauses);
   cur.replaying = false;
   app.cur = cur;
   document.body.classList.add('running');
   show('cab');
   if (cur.engine.arrived) return endRun('arrive');
+  cur.timer = setInterval(updateCab, 500);
+  loadPace(cur);
+  // 一時停止中に落ちていたら、一時停止のまま戻る
+  if (run.pauses?.length && run.pauses[run.pauses.length - 1].end == null) {
+    cur.paused = true;
+    updateCab();
+    return;
+  }
+  await startLocating(cur);
+}
+
+async function startLocating(cur) {
   await acquireWake();
   cur.locator = SIM ? new SimLocator(cur.engine.route) : new GeoLocator();
   cur.locator.start(onFix, (err) => { cur.err = err.message || String(err); updateCab(); });
-  cur.timer = setInterval(updateCab, 500);
-  loadPace(cur);
+}
+
+/** 一時停止／再開（停止ボタンの短押し）。一時停止中は測位を止め、停車も記録しない */
+async function togglePause() {
+  const cur = app.cur;
+  if (!cur || cur.ended) return;
+  const run = cur.run;
+  run.pauses ||= [];
+  const now = clock.now();
+  if (!cur.paused) {
+    cur.paused = true;
+    cur.locator?.stop();
+    cur.locator = null;
+    cur.engine.pause();
+    run.pauses.push({ start: now, end: null });
+    releaseWake();
+  } else {
+    cur.paused = false;
+    run.pauses[run.pauses.length - 1].end = now;
+    cur.err = null;
+    await startLocating(cur);
+  }
+  await db.put('runs', run);
+  updateCab();
 }
 
 function onFix(fix) {
   const cur = app.cur;
-  if (!cur || cur.ended) return;
+  if (!cur || cur.ended || cur.paused) return;
   cur.err = null;
   const p = cur.engine.feed(fix);
   db.put('track', { runId: cur.run.id, t: p.t, lat: p.lat, lon: p.lon, acc: p.acc, speedRaw: p.speedRaw, speed: p.speed, poor: p.poor });
@@ -286,6 +320,8 @@ async function endRun(reason) {
   releaseWake();
   const now = clock.now();
   const run = cur.run;
+  const lastPause = run.pauses?.[run.pauses.length - 1];
+  if (lastPause && lastPause.end == null) lastPause.end = now;
   run.arrivalTime = reason === 'arrive' ? cur.engine.arrivalT : cur.engine.finish(now);
   run.status = 'done';
   run.endTime = now;
@@ -324,36 +360,81 @@ document.addEventListener('pointerdown', () => { if (app.cur) unlockSound(); }, 
 function renderCabRunning() {
   view.innerHTML = `
     <section class="cab">
-      <div class="cab-status">
-        <span id="cTrain"></span><span id="cDir"></span><span id="cGps" class="gps"></span>
+      <div class="cab-head">
+        <span id="cTrain" class="trainno"></span>
+        <span id="cDir" class="dir"></span>
+        <span id="cGps" class="gps"></span>
       </div>
-      <div class="cab-block">
-        <div class="lbl">次駅</div>
-        <div id="cNext" class="cab-next"></div>
-        <div id="cNextSub" class="cab-sub"></div>
+      <div class="panel">
+        <div class="ptag-row"><span class="ptag">次駅</span><span id="cNextSub" class="ptag-note"></span></div>
+        <div class="next-row"><span id="cNext" class="cab-next"></span><span class="next-remain"><span class="ro-l">あと</span> <span id="cRemain" class="seg"></span></span></div>
+        <!-- 時刻は網の目に置く：横は現在と次駅予定を見比べ、縦は現在と着予想を見比べる。
+             左の列は実際と予測、右の列は計画とのずれ -->
+        <div class="tgrid">
+          <div class="ro"><div class="ro-l">現在</div><div id="cNow" class="seg ro-v"></div></div>
+          <div class="ro"><div class="ro-l">次駅予定</div><div id="cSched" class="seg ro-v c-plan"></div></div>
+          <div class="ro ro-eta"><div class="ro-l">着予想 <span id="cEtaDest" class="dest"></span></div><div id="cEta" class="seg ro-v c-eta"></div></div>
+          <div class="ro ro-diff"><div class="ro-l">定時差</div><div id="cDiff" class="seg"></div></div>
+        </div>
       </div>
-      <div class="cab-block cab-times">
-        <div class="trow"><span class="lbl">経過</span><span id="cEl" class="seg t-el"></span></div>
-        <div class="trow"><span class="lbl">現在時刻</span><span id="cNow" class="seg"></span></div>
-        <div class="trow"><span class="lbl">着予想</span><span id="cEta" class="seg t-eta"></span></div>
-        <div class="trow" id="rowSched" hidden><span class="lbl">次駅予定</span><span id="cSched" class="seg t-sched"></span></div>
-        <div class="trow" id="rowDiff" hidden><span class="lbl">定時差</span><span id="cDiff" class="seg"></span></div>
-      </div>
-      <div class="cab-prev"><span class="lbl">前駅</span> <span id="cPrev"></span></div>
-      <div id="cStop" class="cab-stop"></div>
-      <div class="cab-side">
-        <div><span class="lbl">次駅まで</span> <span id="cRemain" class="seg seg-m"></span></div>
+      <div id="cStrip" class="strip">
+        <span class="strip-run"><span class="ptag">前駅</span><span id="cPrev" class="prev"></span><span id="cPrevTime" class="prevtime"></span><span id="cPrevFlag" class="prevflag"></span><span id="cStop" class="stopbadge"></span></span>
+        <span class="strip-pause">一時停止中 <span id="cPauseT" class="seg"></span><span class="pausehint">短押しで再開</span></span>
       </div>
       <div id="cGauge" class="cab-gauge">${gaugeSvg(app.settings.reqCapKmh)}</div>
       <div class="cab-foot">
-        <span id="cElapsed" class="muted"></span>
-        <button id="btnEnd" class="btn btn-small">運転終了</button>
+        <span id="cElapsed"></span>
+        <button id="btnStop" class="stopbtn" type="button"><span class="stopbtn-fill"></span><span class="stopbtn-label"><b id="cStopLbl">一時停止</b><small>長押しで運転終了</small></span></button>
       </div>
     </section>`;
-  $('#btnEnd').addEventListener('click', () => {
-    if (confirm('運転を終了しますか？（停車中に操作してください）')) endRun('manual');
-  });
+  bindStopButton($('#btnStop'));
   updateCab();
+}
+
+/**
+ * 停止ボタン：短押し（0.5秒未満）で一時停止／再開、1.5秒の長押しで運転終了（押しているあいだ赤い帯が伸びる）。
+ * 長押しを途中でやめた（0.5〜1.5秒で離した）ときは何もしない。走行中（時速5km/h以上）は一時停止しない。
+ */
+const HOLD_MS = 1500;
+const TAP_MS = 500;
+const PAUSE_MAX_KMH = 5; // これ以上の速さでは短押しの一時停止を受け付けない
+function bindStopButton(btn) {
+  let timer = null;
+  let fired = false;
+  let downAt = 0;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = null;
+    btn.classList.remove('holding');
+  };
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    btn.setPointerCapture?.(e.pointerId);
+    fired = false;
+    downAt = performance.now();
+    btn.classList.add('holding');
+    timer = setTimeout(() => {
+      fired = true;
+      cancel();
+      endRun('manual');
+    }, HOLD_MS);
+  });
+  btn.addEventListener('pointerup', () => {
+    const short = timer && !fired && performance.now() - downAt < TAP_MS;
+    cancel();
+    if (!short) return;
+    const cur = app.cur;
+    const v = cur?.engine.status(clock.now()).speedKmh;
+    if (cur && !cur.paused && v != null && v >= PAUSE_MAX_KMH) {
+      // 走行中に触れただけで記録が止まらないよう、停車してからでないと一時停止しない
+      cur.pauseRefusedUntil = performance.now() + 1500;
+      updateCab();
+      return;
+    }
+    togglePause();
+  });
+  btn.addEventListener('pointercancel', cancel);
 }
 
 function setText(sel, text, cls) {
@@ -361,6 +442,19 @@ function setText(sel, text, cls) {
   if (!el) return;
   if (el.textContent !== text) el.textContent = text;
   if (cls !== undefined && el.dataset.state !== cls) el.dataset.state = cls;
+}
+
+/** 時:分を大きく、秒を上付きの小さな数字で（鉄道の時刻表示に倣う） */
+function setClockSup(sel, t) {
+  const el = $(sel);
+  if (!el) return;
+  const s = t == null ? '--:--:--' : fmtClock(t);
+  if (el.dataset.v !== s) {
+    el.dataset.v = s;
+    el.innerHTML = `${s.slice(0, 5)}<span class="sec">${s.slice(6, 8)}</span>`;
+  }
+  const state = t == null ? 'none' : '';
+  if (el.dataset.state !== state) el.dataset.state = state;
 }
 
 function updateCab() {
@@ -377,27 +471,32 @@ function updateCab() {
   setText('#cDir', `${DIR_LABEL[run.direction]}${dia ? '・' + dia.name : ''}`);
   let gps;
   let gcls;
-  if (cur.err && (st.fixAge == null || st.fixAge > 5)) { gps = 'GPS 異常'; gcls = 'bad'; }
+  if (cur.paused) { gps = 'GPS 停止中'; gcls = 'paused'; }
+  else if (cur.err && (st.fixAge == null || st.fixAge > 5)) { gps = 'GPS 異常'; gcls = 'bad'; }
   else if (st.fixAge == null) { gps = 'GPS 待機'; gcls = 'bad'; }
   else if (st.fixAge > 10) { gps = `GPS 途絶 ${Math.round(st.fixAge)}s`; gcls = 'bad'; }
   else { gps = `GPS ±${Math.round(st.acc)}m`; gcls = st.poor ? 'bad' : st.acc <= 15 ? 'good' : 'fair'; }
   setText('#cGps', gps, gcls);
 
   setText('#cNext', st.next ? st.next.name : '（終点）', st.inside ? 'inside' : '');
-  setText('#cNextSub', st.next ? `${st.inside ? '構内　' : ''}${st.next.km.toFixed(3)} km` : '');
+  setText('#cNextSub', st.next ? `${st.inside ? '構内　' : ''}${st.next.km.toFixed(3)} km` : '', st.inside ? 'inside' : '');
+  setText('#cEtaDest', cur.engine.terminal?.name ?? '');
 
   const schedNext = dia && st.next ? dia.entries[st.next.id] ?? null : null;
-  setText('#cEl', fmtDur(el));
   setText('#cNow', fmtClock(now));
-  $('#rowSched').hidden = schedNext == null;
-  setText('#cSched', schedNext == null ? '' : fmtClock(run.startTime + schedNext * 1000));
-  $('#rowDiff').hidden = !dia;
-  setText('#cElapsed', `発 ${fmtClock(run.startTime)}`);
+  // ダイヤがなくても予定の窓は同じ場所に置き、薄い「--:--:--」にする（配置を変えない）
+  setText('#cSched', schedNext == null ? '--:--:--' : fmtClock(run.startTime + schedNext * 1000), schedNext == null ? 'none' : '');
+  setText('#cElapsed', `発 ${fmtClock(run.startTime)}　経過 ${fmtDur(el)}`);
+  const lastPause = run.pauses?.[run.pauses.length - 1];
+  $('.cab').dataset.paused = cur.paused ? '1' : '';
+  if (cur.paused && lastPause) setText('#cPauseT', fmtDur((now - lastPause.start) / 1000));
+  const refused = cur.pauseRefusedUntil && performance.now() < cur.pauseRefusedUntil;
+  setText('#cStopLbl', refused ? '停車してから' : cur.paused ? '再開' : '一時停止');
   const route = cur.engine.route;
   const eta = ana.estimateArrival(cur.pace, {
     lastPassage: st.lastPassage, originId: route[0]?.id, now, dia, terminalId: route[route.length - 1]?.id,
   });
-  setText('#cEta', eta == null ? '—' : fmtClock(eta));
+  setClockSup('#cEta', eta);
 
   let diff = null;
   if (dia) {
@@ -406,17 +505,20 @@ function updateCab() {
     if (sl != null) diff = (lp.passT - run.startTime) / 1000 - sl;
     if (schedNext != null && el > schedNext) diff = Math.max(diff ?? -Infinity, el - schedNext);
   }
-  setText('#cDiff', diff == null ? '' : fmtSigned(diff), diff == null ? '' : diff >= 1 ? 'late' : 'ontime');
+  setText('#cDiff', diff == null ? '--:--' : fmtSigned(diff), diff == null ? 'none' : diff >= 1 ? 'late' : 'ontime');
 
-  setText('#cRemain', st.remain == null ? '--' : st.remain >= 1000 ? `${(st.remain / 1000).toFixed(2)}km` : `${Math.round(st.remain)}m`);
+  setText('#cRemain', st.remain == null ? '--' : st.remain >= 1000 ? `${(st.remain / 1000).toFixed(2)} km` : `${Math.round(st.remain)} m`);
   // 区間の目安速度（過去の運転から。数字は出さず、時速計の緑の印だけで示す）
   const fromId = st.lastPassage?.stationId ?? route[0]?.id;
   const guide = st.next ? cur.pace?.guide[`${fromId}>${st.next.id}`] ?? null : null;
-  setGauge($('#cGauge'), st.speedKmh == null || st.fixAge > 10 ? null : st.speedKmh, guide);
+  setGauge($('#cGauge'), cur.paused || st.speedKmh == null || st.fixAge > 10 ? null : st.speedKmh, cur.paused ? null : guide);
 
   const lp = st.lastPassage;
-  setText('#cPrev', lp ? `${lp.stationName}　${fmtClock(lp.passT)}${lp.stopFlag ? '　■停' : ''}` : '—');
-  setText('#cStop', st.stopping != null ? `停車中 ${fmtDur(st.stopping)}` : '');
+  setText('#cPrev', lp ? lp.stationName : '—');
+  setText('#cPrevTime', lp ? fmtClock(lp.passT) : '');
+  setText('#cPrevFlag', lp?.stopFlag ? '■停' : '');
+  setText('#cStop', st.stopping != null ? `停車 ${fmtDur(st.stopping)}` : '');
+  $('.cab').dataset.stopping = st.stopping != null ? '1' : '';
 }
 
 const fmtKmh = (v) => (v == null ? '—' : `${v.toFixed(1)} km/h`);
@@ -492,6 +594,7 @@ async function renderRunDetail(id) {
         <tr><th>所要時間</th><td>${run.arrivalTime ? fmtDur((run.arrivalTime - run.startTime) / 1000) : '—'}</td></tr>
         <tr><th>最高時速</th><td>${fmtKmh(vmax(run.startTime, run.arrivalTime ?? run.endTime))}</td></tr>
         <tr><th>ダイヤ</th><td>${esc(app.dias.find((d) => d.id === run.diaId)?.name ?? 'なし')}</td></tr>
+        ${run.pauses?.length ? `<tr><th>一時停止</th><td>${run.pauses.length}回（計 ${fmtDur(run.pauses.reduce((a, q) => a + ((q.end ?? q.start) - q.start), 0) / 1000)}）</td></tr>` : ''}
       </table>
       ${run.warnings?.length ? `<p class="warn">${run.warnings.map(esc).join('<br>')}</p>` : ''}
 
@@ -602,7 +705,7 @@ async function recompute(run, { close = false } = {}) {
       warning: (w) => warnings.push(w),
     },
   });
-  for (const p of track) eng.feed(p);
+  replay(eng, track, run.pauses);
   const endT = run.endTime ?? track[track.length - 1]?.t ?? run.startTime;
   if (!eng.arrived) eng.finish(endT);
   await db.deleteByIndex('passages', 'runId', run.id);

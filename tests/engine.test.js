@@ -1,5 +1,5 @@
 // 判定エンジンの試験。tests/engine.test.html をブラウザで開くと結果が出る。
-import { RunEngine } from '../js/engine.js';
+import { RunEngine, replay } from '../js/engine.js';
 import { computeKm, DEFAULT_SETTINGS, M_PER_DEG } from '../js/util.js';
 
 const LAT0 = 35.65;
@@ -209,6 +209,23 @@ test('再生の決定性：同じ軌跡からは同じ結果', () => {
   const b = run(tr);
   eq(JSON.stringify(a.list), JSON.stringify(b.list), '通過');
   eq(JSON.stringify(a.stops), JSON.stringify(b.stops), '停車');
+});
+
+test('一時停止：進行中の停車は捨て、再開後も走り出すまでの停車は記録しない', () => {
+  // 区間の途中（700m）で止まり、10秒後に一時停止、測位なしで5分、再開後20秒立ってから走り出す
+  const tr = makeTrack([{ stay: 3 }, { move: 700, v: 7 }, { stay: 10 }]);
+  const pauseT = tr[tr.length - 1].t + 500;
+  const after = makeTrack([{ stay: 20 }, { move: 1300, v: 7 }, { stay: 40 }], { start: 700 })
+    .map((p) => ({ ...p, t: p.t + (pauseT - T0) + 300000 }));
+  const ev = { stops: [] };
+  const eng = new RunEngine({
+    run: { id: 'r', direction: 'down', startTime: T0 },
+    stations, settings: { ...DEFAULT_SETTINGS },
+    on: { stop: (s) => ev.stops.push(s) },
+  });
+  replay(eng, [...tr, ...after], [{ start: pauseT, end: after[0].t - 1000 }]);
+  eq(ev.stops.filter((s) => s.stationId == null).length, 0, '区間の停車の記録数');
+  eq(eng.arrived, true, '到着');
 });
 
 // ---------------------------------------------------------------

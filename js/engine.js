@@ -33,6 +33,7 @@ export class RunEngine {
     this.stops = [];
     this.departed = null; // 起点の判定円を出たか（最初の測位で決まる）
     this.termFirstStopT = null;
+    this.hold = false; // 一時停止から再開して、まだ走り出していない
     this.arrived = false;
     this.arrivalT = null;
     this.lastFix = null;
@@ -221,6 +222,7 @@ export class RunEngine {
   // ---------------- 停車の検知 ----------------
   _stopLogic(p, low) {
     const S = this.s;
+    if (!low) this.hold = false;
     if (!this.stop) {
       if (low) {
         const sig = this._signalAt(p);
@@ -229,7 +231,7 @@ export class RunEngine {
           startT: p.t,
           stationId: sig?.id ?? null,
           sectionId: sig ? '' : this._sectionId(),
-          ignore: !this.departed, // 起点で発車前に立っているあいだは記録しない
+          ignore: !this.departed || this.hold, // 起点で発車前に立っているあいだと、一時停止の後で走り出す前は記録しない
           inTerm,
           fastRun: 0,
           fastT: null,
@@ -321,6 +323,16 @@ export class RunEngine {
     this.on.arrive?.(this.arrivalT);
   }
 
+  /**
+   * 一時停止（コンビニに寄るなど）。進行中の停車は記録せずに捨て、
+   * 再開後も走り出すまでの停車は記録しない。一時停止のあいだの測位は流さない。
+   */
+  pause() {
+    if (this.arrived) return;
+    this.stop = null;
+    this.hold = true;
+  }
+
   /** 手動の運転終了。到着時刻を返す */
   finish(t) {
     if (this.arrived) return this.arrivalT;
@@ -374,4 +386,18 @@ export class RunEngine {
       remain,
     };
   }
+}
+
+/** 保存済みの軌跡を流し直す。一時停止の区間（run.pauses）は、その開始時刻で pause() を呼ぶ */
+export function replay(engine, track, pauses = []) {
+  const ps = [...pauses].sort((a, b) => a.start - b.start);
+  let k = 0;
+  for (const p of track) {
+    while (k < ps.length && ps[k].start <= p.t) {
+      engine.pause();
+      k++;
+    }
+    engine.feed(p);
+  }
+  for (; k < ps.length; k++) engine.pause();
 }

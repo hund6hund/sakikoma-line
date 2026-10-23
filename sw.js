@@ -1,5 +1,5 @@
 // オフラインで動かすためのキャッシュ。ファイルを変えたら VERSION を上げる。
-const VERSION = 'sakikoma-v6';
+const VERSION = 'sakikoma-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -17,6 +17,9 @@ const ASSETS = [
   './sample-stations.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './fonts/BIZUDPGothic-Regular.woff2',
+  './fonts/BIZUDPGothic-Bold.woff2',
+  './fonts/SakikomaUDPNum-Bold.woff2',
 ];
 
 self.addEventListener('install', (e) => {
