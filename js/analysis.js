@@ -162,3 +162,121 @@ export function maxSpeed(track, t0, t1) {
   }
   return best;
 }
+
+// ---------------- 区間の目安速度と到着予想 ----------------
+
+export const STATS_VERSION = 1;
+
+function quantile(arr, q) {
+  const a = arr.filter((x) => isFinite(x)).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const i = (a.length - 1) * q;
+  const lo = Math.floor(i);
+  return a[lo] + (a[Math.min(a.length - 1, lo + 1)] - a[lo]) * (i - lo);
+}
+
+/**
+ * 1本の運転の区間ごとの集計。キーは「前の駅ID>次の駅ID」（進行方向順）。
+ *   moving : 区間を走っているあいだ（低速でないとき）の平均時速
+ *   caught : 次の駅が信号駅で、そこで止まったか
+ */
+export function runSectionStats(passages, track, stopKmh) {
+  const ps = passages.slice().sort((a, b) => a.order - b.order || a.passT - b.passT);
+  const pts = track.filter((p) => !p.poor && isFinite(p.speed)).sort((a, b) => a.t - b.t);
+  const out = {};
+  let j = 0;
+  for (let i = 1; i < ps.length; i++) {
+    const a = ps[i - 1];
+    const b = ps[i];
+    if (b.order !== a.order + 1) continue;
+    while (j < pts.length && pts[j].t < a.passT) j++;
+    let sum = 0;
+    let n = 0;
+    for (let k = j; k < pts.length && pts[k].t <= b.passT; k++) {
+      const v = pts[k].speed * 3.6;
+      if (v >= stopKmh) {
+        sum += v;
+        n++;
+      }
+    }
+    out[`${a.stationId}>${b.stationId}`] = {
+      moving: n ? sum / n : null,
+      signal: b.stationType === 'signal',
+      caught: b.stationType === 'signal' && (b.stopSec || 0) >= 3,
+    };
+  }
+  return out;
+}
+
+/**
+ * 過去の運転から、走行中に使う「いつものペース」をまとめる。
+ * 同じ行先で、今の時間帯に3本以上あればその時間帯だけ、なければ同じ行先すべてを使う。
+ *   guide  : 区間の目安速度。次が信号なら、止まらずに通過できたときの走行速度の中央値。
+ *            一度も通過できていない（いつも捕まる）信号の手前は、急いでも待つだけなので下位25%の速度。
+ *   rem    : 駅を通過してから到着までの時間（秒）の中央値
+ *   leg    : 駅から次の駅までの時間（秒）の中央値
+ *   buffer : 信号1つ分の余裕（停車フラグの立った信号停車の中央値）
+ */
+export function buildPace({ runs, statsByRun, passagesByRun, waits, direction, startTime, bands, capKmh }) {
+  const same = runs.filter((r) => r.status === 'done' && !r.sim && r.direction === direction && r.arrivalTime);
+  const band = bands.find((b) => inBand(startTime, b.start, b.end));
+  const inB = band ? same.filter((r) => inBand(r.startTime, band.start, band.end)) : [];
+  const use = inB.length >= 3 ? inB : same;
+  const ids = new Set(use.map((r) => r.id));
+
+  const bySec = new Map();
+  for (const r of use) {
+    for (const [k, s] of Object.entries(statsByRun.get(r.id) || {})) {
+      if (s.moving == null) continue;
+      if (!bySec.has(k)) bySec.set(k, []);
+      bySec.get(k).push(s);
+    }
+  }
+  const guide = {};
+  for (const [k, arr] of bySec) {
+    if (arr.length < 2) continue;
+    const pass = arr.filter((s) => !s.caught).map((s) => s.moving);
+    const g = arr[0].signal && !pass.length ? quantile(arr.map((s) => s.moving), 0.25) : median(arr[0].signal ? pass : arr.map((s) => s.moving));
+    guide[k] = Math.max(10, Math.min(capKmh, g));
+  }
+
+  const remS = new Map();
+  const legS = new Map();
+  const push = (m, k, v) => (m.has(k) ? m.get(k).push(v) : m.set(k, [v]));
+  for (const r of use) {
+    const ps = (passagesByRun.get(r.id) || []).filter((p) => !p.estimated).sort((a, b) => a.order - b.order);
+    ps.forEach((p, i) => {
+      push(remS, p.stationId, (r.arrivalTime - p.passT) / 1000);
+      const q = ps[i + 1];
+      if (q && q.order === p.order + 1) push(legS, p.stationId, (q.passT - p.passT) / 1000);
+    });
+  }
+  const rem = {};
+  const leg = {};
+  for (const [k, v] of remS) rem[k] = median(v);
+  for (const [k, v] of legS) leg[k] = median(v);
+
+  const w = median(waits.filter((x) => ids.has(x.runId)).map((x) => x.sec));
+  const buffer = Math.max(20, Math.min(90, w ?? 40));
+  return { guide, rem, leg, buffer, runCount: use.length, bandName: inB.length >= 3 ? band.name : null };
+}
+
+/** 到着予想時刻（ms）。最後に通過した駅からいつもの残り時間を足し、今の区間で遅れていればその分を足す */
+export function estimateArrival(pace, { lastPassage, originId, now, dia, terminalId }) {
+  const remOf = (id) => pace?.rem[id] ?? (dia?.entries[terminalId] != null && dia.entries[id] != null ? dia.entries[terminalId] - dia.entries[id] : null);
+  const legOf = (id) => pace?.leg[id] ?? null;
+  const buf = (pace?.buffer ?? 40) * 1000;
+  if (!lastPassage) {
+    const r = remOf(originId);
+    return r == null ? null : now + r * 1000 + buf;
+  }
+  const r = remOf(lastPassage.stationId);
+  if (r == null) return null;
+  let t = lastPassage.passT + r * 1000;
+  const l = legOf(lastPassage.stationId);
+  if (l != null) {
+    const over = now - (lastPassage.passT + l * 1000);
+    if (over > 0) t += over;
+  }
+  return t + buf;
+}

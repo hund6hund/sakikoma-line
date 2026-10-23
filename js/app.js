@@ -3,7 +3,7 @@
 import * as db from './db.js';
 import {
   computeKm, hasCoord, dist, esc, fmtDate, fmtClock, fmtDateTime, fmtDur, fmtSigned, parseDur,
-  download, TYPE_LABEL, SRC_LABEL, DIR_LABEL, DEFAULT_SETTINGS, WEEKDAYS, inBand,
+  download, TYPE_LABEL, SRC_LABEL, DIR_LABEL, DEFAULT_SETTINGS, WEEKDAYS, inBand, median,
 } from './util.js';
 import { RunEngine } from './engine.js';
 import { GeoLocator, SimLocator, SIM, clock, getOnce } from './locator.js';
@@ -219,6 +219,39 @@ function makeEngine(run, cur) {
   });
 }
 
+/** 終了済みの運転の区間集計をそろえる（古い運転は軌跡から計算して保存）。runId -> 集計 */
+async function ensureStats(runs) {
+  const out = new Map();
+  for (const r of runs) {
+    if (r.status !== 'done') continue;
+    if (r.statsV !== ana.STATS_VERSION || !r.sectionStats) {
+      const ps = await db.byIndex('passages', 'runId', r.id);
+      r.sectionStats = ana.runSectionStats(ps, await loadTrack(r.id), app.settings.stopKmh);
+      r.statsV = ana.STATS_VERSION;
+      await db.put('runs', r);
+    }
+    out.set(r.id, r.sectionStats);
+  }
+  return out;
+}
+
+/** 走行中に使う「いつものペース」を過去の運転から作る（運転開始後に裏で） */
+async function loadPace(cur) {
+  try {
+    const runs = (await db.all('runs')).filter((r) => r.id !== cur.run.id);
+    const statsByRun = await ensureStats(runs);
+    const passagesByRun = groupBy(await db.all('passages'), 'runId');
+    const waits = (await db.all('stops')).filter((x) => x.stationId && x.flag);
+    cur.pace = ana.buildPace({
+      runs, statsByRun, passagesByRun, waits,
+      direction: cur.run.direction, startTime: cur.run.startTime,
+      bands: app.settings.bands, capKmh: app.settings.reqCapKmh,
+    });
+  } catch (e) {
+    console.warn('ペースを作れませんでした', e);
+  }
+}
+
 async function beginRunning(run, track) {
   const cur = { run, dia: app.dias.find((d) => d.id === run.diaId) ?? null, ended: false, replaying: true, err: null, chimed: new Set() };
   cur.engine = makeEngine(run, cur);
@@ -232,6 +265,7 @@ async function beginRunning(run, track) {
   cur.locator = SIM ? new SimLocator(cur.engine.route) : new GeoLocator();
   cur.locator.start(onFix, (err) => { cur.err = err.message || String(err); updateCab(); });
   cur.timer = setInterval(updateCab, 500);
+  loadPace(cur);
 }
 
 function onFix(fix) {
@@ -258,6 +292,8 @@ async function endRun(reason) {
   run.endReason = reason;
   run.flagCount = cur.engine.passages.filter((p) => p.stopFlag).length;
   run.warnings = [...new Set([...run.warnings, ...cur.engine.warnings])];
+  run.sectionStats = ana.runSectionStats(cur.engine.passages, cur.engine.pts, app.settings.stopKmh);
+  run.statsV = ana.STATS_VERSION;
   await db.put('runs', run);
   if (reason === 'arrive') chime('arrive', app.settings.chimeVol);
   app.cur = null;
@@ -299,17 +335,14 @@ function renderCabRunning() {
       <div class="cab-block cab-times">
         <div class="trow"><span class="lbl">経過</span><span id="cEl" class="seg t-el"></span></div>
         <div class="trow"><span class="lbl">現在時刻</span><span id="cNow" class="seg"></span></div>
+        <div class="trow"><span class="lbl">着予想</span><span id="cEta" class="seg t-eta"></span></div>
         <div class="trow" id="rowSched" hidden><span class="lbl">次駅予定</span><span id="cSched" class="seg t-sched"></span></div>
-      </div>
-      <div class="cab-block" id="blkDiff" hidden>
-        <div class="lbl">定時差</div>
-        <div id="cDiff" class="seg seg-l"></div>
+        <div class="trow" id="rowDiff" hidden><span class="lbl">定時差</span><span id="cDiff" class="seg"></span></div>
       </div>
       <div class="cab-prev"><span class="lbl">前駅</span> <span id="cPrev"></span></div>
       <div id="cStop" class="cab-stop"></div>
       <div class="cab-side">
-        <div><span class="lbl">残り</span> <span id="cRemain" class="seg seg-m"></span></div>
-        <div><span class="lbl">必要時速</span> <span id="cReq" class="seg seg-m"></span></div>
+        <div><span class="lbl">次駅まで</span> <span id="cRemain" class="seg seg-m"></span></div>
       </div>
       <div id="cGauge" class="cab-gauge">${gaugeSvg(app.settings.reqCapKmh)}</div>
       <div class="cab-foot">
@@ -358,8 +391,13 @@ function updateCab() {
   setText('#cNow', fmtClock(now));
   $('#rowSched').hidden = schedNext == null;
   setText('#cSched', schedNext == null ? '' : fmtClock(run.startTime + schedNext * 1000));
-  $('#blkDiff').hidden = !dia;
+  $('#rowDiff').hidden = !dia;
   setText('#cElapsed', `発 ${fmtClock(run.startTime)}`);
+  const route = cur.engine.route;
+  const eta = ana.estimateArrival(cur.pace, {
+    lastPassage: st.lastPassage, originId: route[0]?.id, now, dia, terminalId: route[route.length - 1]?.id,
+  });
+  setText('#cEta', eta == null ? '—' : fmtClock(eta));
 
   let diff = null;
   if (dia) {
@@ -368,20 +406,13 @@ function updateCab() {
     if (sl != null) diff = (lp.passT - run.startTime) / 1000 - sl;
     if (schedNext != null && el > schedNext) diff = Math.max(diff ?? -Infinity, el - schedNext);
   }
-  setText('#cDiff', diff == null ? '' : fmtSigned(diff), diff == null ? '' : diff >= 1 ? 'late' : diff <= -1 ? 'early' : 'ontime');
+  setText('#cDiff', diff == null ? '' : fmtSigned(diff), diff == null ? '' : diff >= 1 ? 'late' : 'ontime');
 
   setText('#cRemain', st.remain == null ? '--' : st.remain >= 1000 ? `${(st.remain / 1000).toFixed(2)}km` : `${Math.round(st.remain)}m`);
-  let req = '—';
-  let rcls = '';
-  let reqV = null;
-  if (schedNext != null && st.remain != null) {
-    const rs = schedNext - el;
-    const v = rs > 0 ? (st.remain / rs) * 3.6 : Infinity;
-    if (v > S.reqCapKmh) { req = '回復不能'; rcls = 'over'; }
-    else { req = String(Math.round(v)); reqV = v; }
-  }
-  setText('#cReq', req, rcls);
-  setGauge($('#cGauge'), st.speedKmh == null || st.fixAge > 10 ? null : st.speedKmh, reqV);
+  // 区間の目安速度（過去の運転から。数字は出さず、時速計の緑の印だけで示す）
+  const fromId = st.lastPassage?.stationId ?? route[0]?.id;
+  const guide = st.next ? cur.pace?.guide[`${fromId}>${st.next.id}`] ?? null : null;
+  setGauge($('#cGauge'), st.speedKmh == null || st.fixAge > 10 ? null : st.speedKmh, guide);
 
   const lp = st.lastPassage;
   setText('#cPrev', lp ? `${lp.stationName}　${fmtClock(lp.passT)}${lp.stopFlag ? '　■停' : ''}` : '—');
@@ -581,6 +612,8 @@ async function recompute(run, { close = false } = {}) {
   run.arrivalTime = eng.arrivalT;
   run.flagCount = [...passages.values()].filter((p) => p.stopFlag).length;
   run.warnings = [...new Set(warnings)];
+  run.sectionStats = ana.runSectionStats([...passages.values()], track, app.settings.stopKmh);
+  run.statsV = ana.STATS_VERSION;
   if (close) {
     run.status = 'done';
     run.endTime = endT;
@@ -884,6 +917,17 @@ async function renderAnalysis() {
   const bandOpts = `<option value="">すべて</option>${bands.map((b, i) => `<option value="${i}">${esc(b.name)}</option>`).join('')}`;
   view.innerHTML = `
     <section class="page">
+      <h2>信号の捕まりやすさ</h2>
+      <p class="muted small">区間ごとに、次の信号で止まらずに通過できたか・捕まったかと、そのときの走行速度（停車中を除く平均）をまとめます。「目安」は運転台の時速計に緑の印で出す速度で、通過できたときの速度の中央値です。一度も通過できていない信号の手前は、急いでも待つだけなので遅めの値（下位25%）になります。</p>
+      <div class="form">
+        <div class="row2">
+          <label>行先 <select id="sDir"><option value="down">下り</option><option value="up">上り</option></select></label>
+          <label>時間帯 <select id="sBand">${bandOpts}</select></label>
+        </div>
+        <button id="sGo" class="btn">集計</button>
+      </div>
+      <div id="sOut"></div>
+
       <h2>信号周期の推定</h2>
       <p class="muted small">信号駅での発車時刻（青の開始の観測値）を周期の剰余で並べ、そろい具合 R（0〜1）が高い周期を候補として出します。R が雑音の目安を十分上回るものだけが意味のある候補です。</p>
       <div class="form">
@@ -912,6 +956,38 @@ async function renderAnalysis() {
       </div>
       <div id="gOut"></div>
     </section>`;
+  $('#sGo').addEventListener('click', async () => {
+    const dir = $('#sDir').value;
+    const band = bands[$('#sBand').value];
+    const runs = (await db.all('runs')).filter((r) => r.status === 'done' && !r.sim && r.direction === dir && (!band || inBand(r.startTime, band.start, band.end)));
+    const statsByRun = await ensureStats(runs);
+    const ids = new Set(runs.map((r) => r.id));
+    const stops = (await db.all('stops')).filter((x) => ids.has(x.runId) && x.stationId);
+    const pace = ana.buildPace({
+      runs, statsByRun, passagesByRun: groupBy(await db.all('passages'), 'runId'),
+      waits: stops.filter((x) => x.flag), direction: dir, startTime: Date.now(), bands: [], capKmh: app.settings.reqCapKmh,
+    });
+    const order = dir === 'down' ? app.stations : [...app.stations].reverse();
+    const rows = [];
+    for (let i = 1; i < order.length; i++) {
+      const key = `${order[i - 1].id}>${order[i].id}`;
+      const arr = runs.map((r) => statsByRun.get(r.id)?.[key]).filter((x) => x && x.moving != null);
+      if (!arr.length) continue;
+      const pass = arr.filter((x) => !x.caught).map((x) => x.moving);
+      const caught = arr.filter((x) => x.caught).map((x) => x.moving);
+      const w = median(stops.filter((x) => x.stationId === order[i].id && x.sec >= 3).map((x) => x.sec));
+      const f = (v) => (v == null ? '—' : v.toFixed(1));
+      rows.push(`<tr><td>${esc(order[i - 1].name)}→${esc(order[i].name)}</td><td class="num">${arr.length}</td>
+        <td class="num">${order[i].type === 'signal' ? Math.round((caught.length / arr.length) * 100) + '%' : '—'}</td>
+        <td class="num">${order[i].type === 'signal' && w != null ? Math.round(w) + 's' : '—'}</td>
+        <td class="num">${f(median(pass))}</td><td class="num">${f(median(caught))}</td><td class="num">${f(pace.guide[key])}</td></tr>`);
+    }
+    $('#sOut').innerHTML = rows.length
+      ? `<p class="muted small">${runs.length} 本の運転から集計（速度は km/h）</p>
+        <div class="tblwrap"><table class="tbl"><thead><tr><th>区間</th><th>本数</th><th>捕まった</th><th>待ち</th><th>通過時</th><th>捕まり時</th><th>目安</th></tr></thead>
+        <tbody>${rows.join('')}</tbody></table></div>`
+      : '<p class="muted">該当する運転がありません。</p>';
+  });
   $('#cGo').addEventListener('click', async () => {
     const sid = $('#cSt').value;
     const dir = $('#cDir').value;
@@ -971,7 +1047,7 @@ function renderData() {
         ${num('stopKmh', '停車とみなす速度', 'km/h 未満')}
         ${num('flagSec', '停車フラグの閾値', '秒以上')}
         ${num('arrivalSec', '到着とみなす停車', '秒以上')}
-        ${num('reqCapKmh', '必要時速の上限', 'km/h。超えたら「回復不能」')}
+        ${num('reqCapKmh', '時速計の赤帯・目安速度の上限', 'km/h')}
         ${num('poorAcc', '判定に使わない測位', '精度 m 超')}
         ${num('hyst', '構外判定の余裕', 'm')}
         ${num('departFixes', '発車と確定する連続測位', '回')}

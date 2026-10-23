@@ -1,5 +1,5 @@
 // オフラインで動かすためのキャッシュ。ファイルを変えたら VERSION を上げる。
-const VERSION = 'sakikoma-v5';
+const VERSION = 'sakikoma-v6';
 const ASSETS = [
   './',
   './index.html',

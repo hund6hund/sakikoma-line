@@ -53,7 +53,7 @@ function drawNeedle(needle, v) {
   needle.setAttribute('y2', y.toFixed(1));
 }
 
-/** 指針・数字・必要時速の目印を更新する（kmh / req が null なら非表示） */
+/** 指針・数字・区間の目安速度の印を更新する（kmh / req が null なら非表示） */
 export function setGauge(root, kmh, req) {
   const needle = root.querySelector('#gNeedle');
   const num = root.querySelector('#gNum');
